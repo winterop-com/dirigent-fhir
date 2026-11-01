@@ -84,3 +84,25 @@ TRANSACTION_NO_RESPONSE = FHIR.define(
 )
 
 BATCH_ENTRIES_FAILED = FHIR.define("transaction.entries_failed", "{failed} of {total} batch entries failed: {detail}")
+
+FHIRPATH_REFUSED = FHIR.define("fhirpath.refused", "the FHIRPath expression does not parse: {detail}")
+
+FHIRPATH_UNBOUND_VARIABLE = FHIR.define(
+    "fhirpath.unbound_variable",
+    "the expression reads %{name}, which the step's variables do not bind; give it a value there, or correct the name",
+)
+
+FHIRPATH_RESERVED_VARIABLE = FHIR.define(
+    "fhirpath.reserved_variable", "variables binds %{name}, which FHIRPath defines itself; choose another name"
+)
+
+FHIRPATH_OUTPUT_TOO_LARGE = FHIR.define(
+    "fhirpath.output_too_large",
+    "the expression's answer runs past max_output ({limit} bytes); narrow the expression, or raise max_output",
+)
+
+FHIRPATH_FILTER_ANSWER = FHIR.define(
+    "fhirpath.filter_answer",
+    "the expression answered {answer}, and a filter answers true, false or nothing; "
+    "end it in a boolean, such as exists() or count() > 0",
+)

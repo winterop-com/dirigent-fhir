@@ -1,7 +1,8 @@
 # dirigent-fhir
 
 The FHIR pack for [dirigent](https://github.com/winterop-com/dirigent). It contributes the `fhir`
-connection kind and the REST blocks for one FHIR R4 server:
+connection kind and the REST blocks for one FHIR R4 server, and FHIRPath on dirigent's transform,
+map and filter verbs:
 
 | Block | Effect | What it does |
 | --- | --- | --- |
@@ -10,6 +11,9 @@ connection kind and the REST blocks for one FHIR R4 server:
 | `fhir.create` | writes | Creates a resource, conditionally with `ifNoneExist`. |
 | `fhir.update` | writes | Updates a resource with a conditional update on its identifier, never on a source server's id. |
 | `fhir.transaction` | writes | Writes many resources in one transaction or batch Bundle, references between them rewritten to `urn:uuid` entries. |
+| `transform.fhirpath` | computes | Reshapes a value with a FHIRPath expression. |
+| `map.fhirpath` | computes | Replaces every element of a list with what a FHIRPath expression makes of it. |
+| `filter.fhirpath` | computes | Keeps the elements of a list a FHIRPath expression answers true for. |
 
 It is FHIR as a system of its own, not a DHIS2 pack: FHIR to FHIR is as much its purpose as
 feeding DHIS2. Between steps a resource or a Bundle is plain FHIR JSON. Inside a block the R4

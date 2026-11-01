@@ -1,0 +1,93 @@
+# Find the observations above a limit, and the patients they are about, with FHIRPath.
+#
+# The search hands its resources on as a list, and the three FHIRPath verbs work on it the way
+# the jq verbs work on any list: filter keeps some elements unmodified, map replaces each one,
+# and transform reshapes the whole. FHIRPath walks a resource the way FHIR names it, so
+# `valueQuantity.value` and `subject.reference` read as the specification spells them.
+#
+# HOP BY HOP:
+#
+#   find      fhir.search for body weight observations (LOINC 29463-7), every resource
+#             handed on as one element of `resources`.
+#   high      filter.fhirpath: keeps an observation whose value is over the limit. The limit
+#             is a parameter, and it reaches the expression as the variable %limit: a value is
+#             bound, never spliced into the expression's text, so dirigent refuses a ${...}
+#             written in `program` itself.
+#   values    map.fhirpath: each kept observation replaced by its value, same length, same order.
+#   patients  transform.fhirpath over the kept list: who those observations are about, once each.
+#
+# Start a local HAPI FHIR server with
+#
+#   docker run -d -p 8090:8080 hapiproject/hapi:v8.12.0-2
+#
+#   dg run --local examples/fhir/fhir-fhirpath-high-readings.yaml -p limit=90
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-fhirpath-high-readings
+name: High readings, with FHIRPath
+description: |
+  Find body weights over a limit, and the patients they belong to.
+
+  A search hands its observations on as a list, filter.fhirpath keeps the ones over the limit,
+  map.fhirpath reads each value, and transform.fhirpath lists the patients once each.
+
+tags: [fhir, fhirpath, transform, starter]
+
+requires:
+  blocks:
+    - fhir.search
+    - filter.fhirpath
+    - map.fhirpath
+    - transform.fhirpath
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+params:
+  type: object
+  properties:
+    limit:
+      type: number
+      default: 100
+      description: The body weight in kilograms an observation has to be over to be kept.
+
+steps:
+  find:
+    block: fhir.search
+    config:
+      connection: fhir-local
+      resource_type: Observation
+      params:
+        code: http://loinc.org|29463-7
+        _count: "100"
+      max_pages: 20
+      emit: resources
+
+  high:
+    block: filter.fhirpath
+    depends_on: [find]
+    config:
+      input: ${steps.find.output.resources}
+      program: valueQuantity.value > %limit
+      variables:
+        limit: ${params.limit}
+
+  values:
+    block: map.fhirpath
+    depends_on: [high]
+    config:
+      input: ${steps.high.output.value}
+      program: valueQuantity.value
+
+  patients:
+    block: transform.fhirpath
+    depends_on: [high]
+    config:
+      input: ${steps.high.output.value}
+      program: subject.reference.distinct()

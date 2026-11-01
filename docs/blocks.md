@@ -6,11 +6,13 @@ tables are the two JSON Schemas each block publishes into the catalog -- the sam
 
 What a block is, and the contract behind these tables, is
 [dirigent's own](https://winterop-com.github.io/dirigent/blocks/). Every block here is an
-operator, declares the `fhir` group, and takes a `connection` naming a
-[`fhir` connection](connection.md) by its code.
+operator. The REST blocks declare the `fhir` group and take a `connection` naming a
+[`fhir` connection](connection.md) by its code. The [FHIRPath verbs](#fhirpath-on-the-verb-frames)
+are dirigent's own `transform`, `map` and `filter` frames with FHIRPath as their language: they
+declare the `transform` group, take no connection, and reach no server.
 
-**Reads or writes** says what a block does to the server: the two reads change nothing there,
-and the three writes do. **Idempotent** says whether re-running the block after an unclear
+**Effect** says what a block does to the server: the two reads change nothing there, the three
+writes do, and the three FHIRPath verbs only compute. **Idempotent** says whether re-running the block after an unclear
 failure is safe. The engine spends the step's retry budget either way, so this is what to read
 before writing `max_attempts` above 1. No block in this pack runs code on the worker, so none
 has to be allowlisted.
@@ -25,6 +27,9 @@ storage work on it unchanged.
 | [`fhir.create`](#fhircreate) | writes | no | Create a FHIR resource, conditionally with ifNoneExist. |
 | [`fhir.update`](#fhirupdate) | writes | yes | Update a FHIR resource matched on its identifier. |
 | [`fhir.transaction`](#fhirtransaction) | writes | yes | Write FHIR resources in one transaction or batch. |
+| [`transform.fhirpath`](#transformfhirpath) | computes | yes | Reshape a value with a FHIRPath expression. |
+| [`map.fhirpath`](#mapfhirpath) | computes | yes | Replace every element of a list with what a FHIRPath expression makes of it. |
+| [`filter.fhirpath`](#filterfhirpath) | computes | yes | Keep the elements of a list a FHIRPath expression answers true for. |
 
 ## Operators
 
@@ -176,6 +181,118 @@ A transaction the server refuses fails the step with its `OperationOutcome`, and
 | `entries` | `object[]` | yes |  | One result per resource written, in the order they were sent. |
 | `response` | `object` | yes |  | The server's `transaction-response` or `batch-response` Bundle, as plain FHIR JSON. |
 
+## FHIRPath on the verb frames
+
+`transform.fhirpath`, `map.fhirpath` and `filter.fhirpath` are dirigent's
+[transform verbs](https://winterop-com.github.io/dirigent/transforms/) with FHIRPath as their
+language, evaluated by the engine's FHIRPath evaluator. Each keeps its frame's promise: a
+transform reshapes one value, a map keeps the list's length, and a filter keeps elements
+unmodified. Mapping between two servers' profiles is where FHIRPath earns its place over jq: it
+walks a resource the way FHIR names it, `name.where(use = 'official').family`, with FHIR's own
+dates, quantities and `ofType()`.
+
+**What a collection becomes.** A FHIRPath answer is a collection. Under `transform.fhirpath` and
+`map.fhirpath` an empty one is `null`, one item is the item itself, and several are their list.
+Under `filter.fhirpath` the answer is read the way FHIRPath's own `where()` reads its criteria:
+`true` keeps the element, `false` and an empty answer drop it, and anything else is a refusal.
+A date or a time is its FHIR spelling, a decimal a number, and a quantity `{value, unit}`.
+
+**A value reaches an expression only as a variable.** Each entry of `variables` is bound as a
+FHIRPath environment variable and read as `%name`. A reference there resolves as data, so a value
+from a caller's input cannot end a string or add a clause:
+
+```yaml
+keep:
+  block: filter.fhirpath
+  config:
+    input: ${steps.find.output.resources}
+    program: active and birthDate >= %born
+    variables:
+      born: ${params.born_after}
+```
+
+The program field publishes `application/fhirpath`, and dirigent refuses a `${...}` written in
+it, at apply and when the step starts, rather than splice a value into the expression's text.
+An expression reading a `%name` the step does not bind is refused too, instead of evaluating to
+nothing, and so is a variable named after one FHIRPath defines itself: `resource`,
+`rootResource`, `context`, `ucum`, `sct`, `loinc`.
+
+**Bounded in time and size.** An expression is parsed at apply, where a bad one is refused with
+the parser's own message, and is never evaluated on the worker: it runs in a process of its own
+over dirigent's runner protocol, so the worker's event loop stays free and a step's timeout ends
+a long evaluation by killing that process. One evaluation's answer may run to `max_output` as
+JSON. The evaluator opens no file and no socket: `resolve()` and the terminology functions have
+nothing to reach.
+
+### `transform.fhirpath`
+
+Reshape a value with a FHIRPath expression.
+
+Idempotent. Computes.
+
+Evaluates the expression over `input` as `%resource`, a resource or a Bundle, and hands the answer on as `value`. A list as `input` is evaluated as a collection.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `any JSON value` | yes |  | The value to work on, written inline or referenced from an earlier step's output. |
+| `program` | `string` (FHIRPath) | yes |  | The FHIRPath expression this step evaluates, with `%resource` the value it is evaluated over. |
+| `variables` | `object` |  |  | Values the expression reads as `%name`, each written inline or as a `${...}` reference. |
+| `max_output` | `size` |  | `"16mb"` | The most one evaluation's answer may run to as JSON, such as `16MB`. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `value` | `any JSON value` |  | `null` | The reshaped value, which a later step reads or hands to `storage.write`. |
+
+### `map.fhirpath`
+
+Replace every element of a list with what a FHIRPath expression makes of it.
+
+Idempotent. Computes.
+
+Evaluates the expression over each element of `input` on its own, as `%resource`, and replaces the element with the answer. An `input` that is not a list fails the step.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `any JSON value` | yes |  | The value to work on, written inline or referenced from an earlier step's output. |
+| `program` | `string` (FHIRPath) | yes |  | The FHIRPath expression this step evaluates, with `%resource` the value it is evaluated over. |
+| `variables` | `object` |  |  | Values the expression reads as `%name`, each written inline or as a `${...}` reference. |
+| `max_output` | `size` |  | `"16mb"` | The most one evaluation's answer may run to as JSON, such as `16MB`. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `value` | `any JSON value` |  | `null` | The reshaped value, which a later step reads or hands to `storage.write`. |
+
+### `filter.fhirpath`
+
+Keep the elements of a list a FHIRPath expression answers true for.
+
+Idempotent. Computes.
+
+Evaluates the expression over each element of `input` on its own, as `%resource`, and keeps the element unmodified when the answer is `true`. An answer that is not one boolean or nothing fails the step, naming the element by its index.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `any JSON value` | yes |  | The value to work on, written inline or referenced from an earlier step's output. |
+| `program` | `string` (FHIRPath) | yes |  | The FHIRPath expression this step evaluates, with `%resource` the value it is evaluated over. |
+| `variables` | `object` |  |  | Values the expression reads as `%name`, each written inline or as a `${...}` reference. |
+| `max_output` | `size` |  | `"16mb"` | The most one evaluation's answer may run to as JSON, such as `16MB`. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `value` | `any JSON value` |  | `null` | The reshaped value, which a later step reads or hands to `storage.write`. |
+
 ## How a failure is classified
 
 A server's refusal fails the step with `fhir.answered`, quoting its `OperationOutcome`: the
@@ -228,3 +345,13 @@ stream of run records is selected by code however the English is later reworded 
 | `fhir.transaction.duplicate` | `the transaction carries {resource} twice, and a reference to it would be ambiguous` |
 | `fhir.transaction.no_response` | `{where} answered with {found} entries for the {sent} the transaction sent, so its outcome is unknown` |
 | `fhir.transaction.entries_failed` | `{failed} of {total} batch entries failed: {detail}` |
+| `fhir.fhirpath.refused` | `the FHIRPath expression does not parse: {detail}` |
+| `fhir.fhirpath.unbound_variable` | `the expression reads %{name}, which the step's variables do not bind; give it a value there, or correct the name` |
+| `fhir.fhirpath.reserved_variable` | `variables binds %{name}, which FHIRPath defines itself; choose another name` |
+| `fhir.fhirpath.output_too_large` | `the expression's answer runs past max_output ({limit} bytes); narrow the expression, or raise max_output` |
+| `fhir.fhirpath.filter_answer` | `the expression answered {answer}, and a filter answers true, false or nothing; end it in a boolean, such as exists() or count() > 0` |
+
+A FHIRPath verb's refusal reaches a document at apply as dirigent's `plugin.program_refused`, and a
+step as `plugin.transform_failed`, or `plugin.element_failed` naming the element of a map or a
+filter, with the sentence above as its `detail`: the frame owns the failure, as it does for
+`transform.jq`.
