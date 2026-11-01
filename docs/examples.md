@@ -16,6 +16,7 @@ docker run -d --name fhir-target -p 8091:8080 hapiproject/hapi:v8.12.0-2
 | `fhir-create-if-none-exist` | Create a patient unless one with the same identifier is already there. |
 | `fhir-update-by-identifier` | Write a patient over the one with the same identifier, or create it. |
 | `fhir-copy-on-schedule` | Copy patients and their observations from one server to another, nightly. |
+| `fhir-copy-page-by-page` | Copy patients and observations to another server, a transaction per page. |
 
 ## FHIR to FHIR on a schedule
 
@@ -48,6 +49,38 @@ patient's `urn:uuid`, and writes every resource as a conditional update on its i
 source's ids never reach the target, and the second night writes over what the first created:
 `created` is zero and `updated` counts everything.
 
-A complete project around it, with a `verify.sh` that starts two HAPI servers, seeds one, copies,
+## A page at a time
+
+`fhir-copy-page-by-page` copies the same search with `emit: pages`, so the search hands on one
+Bundle per page and the copy fans out over them, one transaction per page:
+
+```yaml
+steps:
+  find:
+    block: fhir.search
+    config:
+      connection: fhir-source
+      resource_type: Patient
+      params:
+        _revinclude: Observation:subject
+        _count: "50"
+      max_pages: 100
+      emit: pages
+
+  copy:
+    block: fhir.transaction
+    depends_on: [find]
+    for_each: ${steps.find.output.bundles}
+    items: continue
+    config:
+      connection: fhir-target
+      bundle: ${item}
+```
+
+Each page is its own item with its own status and retry, and one refused page fails its own
+item rather than the copy. `emit: resources` hands on one resource per item instead, for a
+step such as `fhir.update` that writes one at a time.
+
+A complete project around the copy, with a `verify.sh` that starts two HAPI servers, seeds one, copies,
 and asserts the copy, is `fhir-to-fhir` in
 [dirigent-examples](https://github.com/winterop-com/dirigent-examples).

@@ -24,3 +24,4 @@ under `requires.connections`, so create a `fhir` connection under that code or r
 | [fhir-create-if-none-exist.yaml](fhir-create-if-none-exist.yaml) | Create a resource unless one with its identifier is already there. |
 | [fhir-update-by-identifier.yaml](fhir-update-by-identifier.yaml) | Write a resource over the one with its identifier, or create it. |
 | [fhir-copy-on-schedule.yaml](fhir-copy-on-schedule.yaml) | Copy patients and their observations from one server to another, nightly. |
+| [fhir-copy-page-by-page.yaml](fhir-copy-page-by-page.yaml) | Copy a search to another server, one transaction per page, fanned out. |

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, JsonValue
 from dirigent_common import BlockModel
 from dirigent_fhir.connection import client_for
 from dirigent_fhir.messages import SEARCH_MORE_PAGES
-from dirigent_fhir.r4 import FhirIssue, searchset
+from dirigent_fhir.r4 import FhirIssue, JsonObject, as_object, searchset
 from dirigent_fhir.read import RESOURCE_TYPE
 from dirigent_plugin import BlockFailure, ConnectionRef, ErrorClass, Operator, OperatorSpec, StepContext
 
@@ -32,15 +32,27 @@ class FhirSearchConfig(BlockModel):
     """What a next link past `max_pages` does: `fail` fails the step, `stop` answers with the pages read and
     `complete` false."""
 
+    emit: Literal["bundle", "pages", "resources"] = "bundle"
+    """What the step hands on: `bundle` folds every page into one Bundle under `bundle`, `pages` lists each page as
+    its own searchset Bundle under `bundles`, and `resources` lists every resource under `resources`, so a
+    following step's `for_each` maps over either list."""
+
 
 class FhirSearchOutput(BlockModel):
-    """Every page's results, folded into one Bundle."""
+    """Every page's results, folded into one Bundle, or listed for a fan-out."""
 
-    bundle: dict[str, JsonValue]
-    """A `searchset` Bundle holding every entry of every page read, as plain FHIR JSON."""
+    bundle: dict[str, JsonValue] | None = None
+    """With `emit: bundle`, a `searchset` Bundle holding every entry of every page read, as plain FHIR JSON."""
+
+    bundles: list[dict[str, JsonValue]] | None = None
+    """With `emit: pages`, one `searchset` Bundle per page read that holds a result, in the order the server
+    answered them."""
+
+    resources: list[dict[str, JsonValue]] | None = None
+    """With `emit: resources`, every resource of every page read, included resources counted, in order."""
 
     count: int
-    """How many entries the Bundle holds, included resources counted."""
+    """How many entries the pages hold, included resources counted."""
 
     total: int | None = None
     """How many matches the server says there are, when it says."""
@@ -80,13 +92,26 @@ class FhirSearchOperator(Operator[FhirSearchConfig, FhirSearchOutput]):
         bundle, issues = searchset(result.pages)
         for issue in issues:
             ctx.log.warning("the server said something about the search", issue=issue.describe())
-        entries = bundle.get("entry")
+        entries = _entries(bundle)
         total = bundle.get("total")
-        return FhirSearchOutput(
-            bundle=bundle,
-            count=len(entries) if isinstance(entries, list) else 0,
+        output = FhirSearchOutput(
+            count=len(entries),
             total=total if isinstance(total, int) else None,
             pages=len(result.pages),
             complete=not result.more,
             issues=issues,
         )
+        if config.emit == "pages":
+            folded = (searchset([page])[0] for page in result.pages)
+            output.bundles = [page for page in folded if _entries(page)]
+        elif config.emit == "resources":
+            output.resources = [resource for entry in entries if (resource := as_object(entry.get("resource")))]
+        else:
+            output.bundle = bundle
+        return output
+
+
+def _entries(bundle: JsonObject) -> list[JsonObject]:
+    """A Bundle's entries, each as an object."""
+    raw = bundle.get("entry")
+    return [entry for item in raw if (entry := as_object(item)) is not None] if isinstance(raw, list) else []

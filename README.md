@@ -6,7 +6,7 @@ connection kind and the REST blocks for one FHIR R4 server:
 | Block | Effect | What it does |
 | --- | --- | --- |
 | `fhir.read` | reads | Reads one resource by type and id. |
-| `fhir.search` | reads | Searches one type, following `Bundle.link[next]` on the connection's origin under a page cap. |
+| `fhir.search` | reads | Searches one type, following `Bundle.link[next]` on the connection's origin under a page cap, and hands on one Bundle, its pages, or its resources for a fan-out. |
 | `fhir.create` | writes | Creates a resource, conditionally with `ifNoneExist`. |
 | `fhir.update` | writes | Updates a resource with a conditional update on its identifier, never on a source server's id. |
 | `fhir.transaction` | writes | Writes many resources in one transaction or batch Bundle, references between them rewritten to `urn:uuid` entries. |

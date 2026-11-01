@@ -1,0 +1,83 @@
+# Copy a search from one FHIR server to another, one transaction per page.
+#
+# fhir-copy-on-schedule folds every page into one Bundle and writes it in one transaction. That
+# is all or nothing, and the whole search sits in one step's output. Here the search hands its
+# pages on as a list instead, and the copy fans out over it: one item per page, each its own
+# transaction, each with its own status and its own retry.
+#
+# HOP BY HOP:
+#
+#   find    fhir.search on the source with `emit: pages`. Its output's `bundles` is one
+#           searchset Bundle per page that holds a result, in the order the server answered.
+#           `_revinclude=Observation:subject` puts each patient's observations on the patient's
+#           own page, so every page carries the resources its references point at.
+#   copy    fhir.transaction on the target, once per page. `for_each` reads `find`'s output,
+#           so the grid is written when `find` has succeeded and is as wide as the search
+#           turned out to be. `${item}` is one page's Bundle. An empty search hands on an
+#           empty list, which skips `copy`.
+#
+# `items: continue` lets one refused page through: the rest are still written, the failed one
+# is recorded against its own item, and the run ends completed_with_errors. Every entry is a
+# conditional update on its identifier, so retrying that page later writes over what is there.
+#
+# Both connections are local HAPI FHIR servers; start two with
+#
+#   docker run -d -p 8090:8080 hapiproject/hapi:v8.12.0-2
+#   docker run -d -p 8091:8080 hapiproject/hapi:v8.12.0-2
+#
+#   dg run --local examples/fhir/fhir-copy-page-by-page.yaml
+#
+# TO MAKE IT YOURS: `emit: resources` hands on every resource on its own instead, for a step
+# that takes one resource, such as fhir.update.
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-copy-page-by-page
+name: Copy FHIR to FHIR, a page at a time
+description: |
+  Copy patients and observations to another server, a transaction per page.
+
+  The search hands each page on as its own Bundle, and the copy fans out over them, so one
+  refused page fails its own item rather than the whole copy.
+
+tags: [fhir, fan-out, starter]
+
+requires:
+  blocks:
+    - fhir.search
+    - fhir.transaction
+
+connections:
+  fhir-source:
+    name: Source FHIR server
+    description: A local HAPI FHIR server the patients are read from.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+  fhir-target:
+    name: Target FHIR server
+    description: A local HAPI FHIR server the patients are written to.
+    kind: fhir
+    config:
+      base_url: http://localhost:8091/fhir
+
+steps:
+  find:
+    block: fhir.search
+    config:
+      connection: fhir-source
+      resource_type: Patient
+      params:
+        _revinclude: Observation:subject
+        _count: "50"
+      max_pages: 100
+      emit: pages
+
+  copy:
+    block: fhir.transaction
+    depends_on: [find]
+    for_each: ${steps.find.output.bundles}
+    items: continue
+    config:
+      connection: fhir-target
+      bundle: ${item}
