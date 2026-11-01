@@ -14,6 +14,11 @@ from dirigent_testing import assert_contribution_conforms, check_pack_messages
 
 FHIR_BLOCKS = ["fhir.create", "fhir.read", "fhir.search", "fhir.transaction", "fhir.update"]
 
+#: The FHIRPath engines on dirigent's verb frames, which compute and reach no server.
+FHIRPATH_VERBS = ["filter.fhirpath", "map.fhirpath", "transform.fhirpath"]
+
+BLOCKS = sorted(FHIR_BLOCKS + FHIRPATH_VERBS)
+
 #: The blocks that only read, and are safe to run again.
 READS = {"fhir.read", "fhir.search"}
 
@@ -22,23 +27,33 @@ IDEMPOTENT_WRITES = {"fhir.update", "fhir.transaction"}
 
 CONTRIBUTION = FhirPlugin().contribute()
 
+#: The blocks that talk to a FHIR server through a connection.
+REST = [operator for operator in CONTRIBUTION.operators if operator.spec.id in FHIR_BLOCKS]
+
 
 def test_the_pack_contributes_the_fhir_blocks_and_connection_kind() -> None:
     assert CONTRIBUTION.api_version == API_VERSION
-    assert sorted(CONTRIBUTION.block_ids()) == FHIR_BLOCKS
+    assert sorted(CONTRIBUTION.block_ids()) == BLOCKS
     assert [connection.id for connection in CONTRIBUTION.connection_kinds] == ["fhir"]
     assert CONTRIBUTION.sensors == []
     assert CONTRIBUTION.storage_backends == []
 
 
-def test_every_block_shelves_under_the_fhir_group_and_runs_no_code() -> None:
+def test_every_block_shelves_under_its_group_and_runs_no_code() -> None:
     for operator in CONTRIBUTION.operators:
-        assert operator.spec.group == "fhir"
+        assert operator.spec.group == ("fhir" if operator.spec.id in FHIR_BLOCKS else "transform")
         assert operator.spec.local_execution is False
 
 
-def test_reads_say_they_read_and_writes_say_they_write() -> None:
+def test_the_fhirpath_verbs_take_no_connection_and_are_idempotent() -> None:
     for operator in CONTRIBUTION.operators:
+        if operator.spec.id in FHIRPATH_VERBS:
+            assert "connection" not in operator.config_model.model_fields
+            assert operator.spec.idempotent is True
+
+
+def test_reads_say_they_read_and_writes_say_they_write() -> None:
+    for operator in REST:
         doc = operator.__class__.__doc__ or ""
         if operator.spec.id in READS:
             assert doc.endswith("It only reads."), operator.spec.id
@@ -48,8 +63,8 @@ def test_reads_say_they_read_and_writes_say_they_write() -> None:
             assert operator.spec.idempotent is (operator.spec.id in IDEMPOTENT_WRITES)
 
 
-def test_every_block_marks_its_connection_field_as_a_reference() -> None:
-    for block in CONTRIBUTION.operators:
+def test_every_rest_block_marks_its_connection_field_as_a_reference() -> None:
+    for block in REST:
         schema = block.config_model.model_json_schema(mode="serialization", schema_generator=HumaneJsonSchema)
         field = cast("dict[str, Any]", schema["properties"]["connection"])
         ref = cast("str", field["$ref"]).removeprefix("#/$defs/")
@@ -68,7 +83,7 @@ def test_the_pack_registers_through_a_plugin_manager() -> None:
     manager = PluginManager(PROJECT_NAME)
     manager.add_extension_points(markers)
     manager.register(plugin, name="fhir")
-    assert [sorted(found.block_ids()) for found in manager.caller(contribute)()] == [FHIR_BLOCKS]
+    assert [sorted(found.block_ids()) for found in manager.caller(contribute)()] == [BLOCKS]
 
 
 def test_the_pack_is_discovered_through_the_entry_point_group() -> None:

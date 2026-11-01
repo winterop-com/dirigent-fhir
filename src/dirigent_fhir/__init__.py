@@ -7,6 +7,7 @@ from importlib.resources.abc import Traversable
 from dirigent_fhir.client import FhirClient
 from dirigent_fhir.connection import FhirConnectionConfig, FhirConnectionKind, build_client, client_for
 from dirigent_fhir.create import FhirCreateConfig, FhirCreateOperator
+from dirigent_fhir.fhirpath import FhirPathConfig, FhirPathFilterer, FhirPathMapper, FhirPathTransformer
 from dirigent_fhir.messages import FHIR
 from dirigent_fhir.r4 import FhirIssue
 from dirigent_fhir.read import FhirReadConfig, FhirReadOperator, FhirReadOutput
@@ -30,7 +31,7 @@ class FhirPlugin:
 
     @extension
     def contribute(self) -> Contribution:
-        """Contribute the FHIR blocks and the ``fhir`` connection kind they are configured from."""
+        """Contribute the FHIR blocks, the FHIRPath verbs, and the ``fhir`` connection kind."""
         return Contribution(
             operators=[
                 FhirReadOperator(),
@@ -38,6 +39,9 @@ class FhirPlugin:
                 FhirCreateOperator(),
                 FhirUpdateOperator(),
                 FhirTransactionOperator(),
+                FhirPathTransformer(),
+                FhirPathMapper(),
+                FhirPathFilterer(),
             ],
             connection_kinds=[FhirConnectionKind()],
             labels=[FHIR],
@@ -60,6 +64,10 @@ __all__ = [
     "FhirCreateOperator",
     "FhirEntryResult",
     "FhirIssue",
+    "FhirPathConfig",
+    "FhirPathFilterer",
+    "FhirPathMapper",
+    "FhirPathTransformer",
     "FhirPlugin",
     "FhirReadConfig",
     "FhirReadOperator",

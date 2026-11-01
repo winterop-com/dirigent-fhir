@@ -17,6 +17,7 @@ docker run -d --name fhir-target -p 8091:8080 hapiproject/hapi:v8.12.0-2
 | `fhir-update-by-identifier` | Write a patient over the one with the same identifier, or create it. |
 | `fhir-copy-on-schedule` | Copy patients and their observations from one server to another, nightly. |
 | `fhir-copy-page-by-page` | Copy patients and observations to another server, a transaction per page. |
+| `fhir-fhirpath-high-readings` | Find body weights over a limit, and the patients they belong to, with FHIRPath. |
 
 ## FHIR to FHIR on a schedule
 
