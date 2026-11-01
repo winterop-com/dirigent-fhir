@@ -12,6 +12,8 @@ map and filter verbs:
 | `fhir.update` | writes | Updates a resource with a conditional update on its identifier, never on a source server's id. |
 | `fhir.transaction` | writes | Writes many resources in one transaction or batch Bundle, references between them rewritten to `urn:uuid` entries. |
 | `fhir.validate` | computes | Validates resources and Bundles structurally: FHIR's JSON rules, and the engine's R4 models where they reach. |
+| `fhir.cql` | computes | Evaluates a CQL library over the resources a step produced, per patient or once. |
+| `fhir.measure` | computes | Evaluates a measure's populations over those resources, scores them, and answers a MeasureReport. |
 | `transform.fhirpath` | computes | Reshapes a value with a FHIRPath expression. |
 | `map.fhirpath` | computes | Replaces every element of a list with what a FHIRPath expression makes of it. |
 | `filter.fhirpath` | computes | Keeps the elements of a list a FHIRPath expression answers true for. |

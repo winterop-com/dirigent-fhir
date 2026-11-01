@@ -1,0 +1,105 @@
+# Evaluate CQL over a search, and score a measure into a MeasureReport.
+#
+# Both blocks read only what they are handed: the search's Bundle is the data a retrieve such as
+# [Observation: "Body weight"] reads, so nothing else on the server is consulted. The limit is a
+# parameter, and reaches the library as the CQL parameter Limit.
+#
+# HOP BY HOP:
+#
+#   find     fhir.search for patients with their body weights beside them.
+#   weights  fhir.cql: each patient's heaviest weight and whether it is over the limit, once per
+#            patient, in the Patient context.
+#   measure  fhir.measure: heavy adults as a proportion of adults. The numerator does not repeat
+#            the denominator's criterion; the block nests it in the denominator, as a proportion
+#            measure does, and answers a summary MeasureReport.
+#
+# Start a local HAPI FHIR server with
+#
+#   docker run -d -p 8090:8080 hapiproject/hapi:v8.12.0-2
+#
+#   dg run --local examples/fhir/fhir-measure-heavy-adults.yaml -p limit=100
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-measure-heavy-adults
+name: Heavy adults, a CQL measure
+description: |
+  Score heavy adults as a proportion of adults, with CQL, into a MeasureReport.
+
+  fhir.cql answers each patient's heaviest weight, and fhir.measure counts the populations and
+  answers a summary MeasureReport for a later step to write.
+
+tags: [fhir, cql, measure, starter]
+
+requires:
+  blocks:
+    - fhir.search
+    - fhir.cql
+    - fhir.measure
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+params:
+  type: object
+  properties:
+    limit:
+      type: number
+      default: 100
+      description: The body weight in kilograms a patient has to be over to count as heavy.
+
+steps:
+  find:
+    block: fhir.search
+    config:
+      connection: fhir-local
+      resource_type: Patient
+      params:
+        _revinclude: Observation:subject
+        _count: "100"
+      max_pages: 20
+
+  weights:
+    block: fhir.cql
+    depends_on: [find]
+    config:
+      data: ${steps.find.output.bundle}
+      parameters:
+        Limit: ${params.limit}
+      library: |
+        library Weights version '1.0.0'
+        using FHIR version '4.0.1'
+        include FHIRHelpers version '4.0.1'
+        codesystem "LOINC": 'http://loinc.org'
+        code "Body weight": '29463-7' from "LOINC"
+        parameter Limit Decimal default 100.0
+        context Patient
+        define "Heaviest": Max([Observation: "Body weight"] O return (O.value as Quantity).value)
+        define "Heavy": "Heaviest" > Limit
+
+  measure:
+    block: fhir.measure
+    depends_on: [find]
+    config:
+      data: ${steps.find.output.bundle}
+      measure: http://example.org/Measure/heavy-adults
+      period_start: "2026-01-01"
+      period_end: "2026-12-31"
+      parameters:
+        Limit: ${params.limit}
+      library: |
+        library HeavyAdults version '1.0.0'
+        using FHIR version '4.0.1'
+        include FHIRHelpers version '4.0.1'
+        codesystem "LOINC": 'http://loinc.org'
+        code "Body weight": '29463-7' from "LOINC"
+        parameter Limit Decimal default 100.0
+        context Patient
+        define "Initial Population": exists [Observation: "Body weight"]
+        define "Denominator": AgeInYears() >= 18
+        define "Numerator": exists ([Observation: "Body weight"] O where (O.value as Quantity).value > Limit)
