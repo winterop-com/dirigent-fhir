@@ -65,7 +65,7 @@ Searches `GET [base]/{resource_type}` and follows `Bundle.link[next]` for at mos
 | --- | --- | --- | --- | --- |
 | `connection` | `string` | yes |  | The code of the fhir connection naming the server. |
 | `resource_type` | `string` | yes |  | The resource type searched, such as `Patient`. |
-| `params` | `object` |  |  | The search parameters as FHIR spells them, such as `{identifier: "http://example.org/mrn\|", _count: "50"}`; a list sends the parameter once per value, which FHIR reads as AND. |
+| `params` | `object of string or string[]` |  |  | The search parameters as FHIR spells them, such as `{identifier: "http://example.org/mrn\|", _count: "50"}`; a list sends the parameter once per value, which FHIR reads as AND. |
 | `max_pages` | `integer` |  | `10` | The most pages followed, the first included. |
 | `on_more` | `"fail" or "stop"` |  | `"fail"` | What a next link past `max_pages` does: `fail` fails the step, `stop` answers with the pages read and `complete` false. |
 
