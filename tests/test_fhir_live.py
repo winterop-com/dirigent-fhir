@@ -9,7 +9,9 @@ import httpx2
 import pytest
 
 from dirigent_fhir.connection import FhirConnectionConfig, FhirConnectionKind
+from dirigent_fhir.read import FhirReadOperator
 from dirigent_fhir.search import FhirSearchOperator, FhirSearchOutput
+from dirigent_plugin import BlockFailure, ErrorClass
 from dirigent_testing import FakeContext, call_block
 
 pytestmark = [
@@ -52,3 +54,23 @@ async def test_a_search_reads_two_pages(block_ctx: FakeContext, monkeypatch: pyt
     )
     assert isinstance(out, FhirSearchOutput)
     assert out.pages >= 1
+
+
+async def test_a_missing_resource_is_refused_in_the_servers_own_words(
+    block_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config()
+
+    def http(ref: str) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(base_url=config.base_url)
+
+    block_ctx.connections["live"] = config
+    monkeypatch.setattr(block_ctx, "http", http)
+    with pytest.raises(BlockFailure) as raised:
+        await call_block(
+            FhirReadOperator(), {"connection": "live", "resource_type": "Patient", "id": "no-such-patient"}, block_ctx
+        )
+    assert raised.value.error_class is ErrorClass.REJECTED
+    assert raised.value.params["status"] == 404
+    issues = raised.value.params["issues"]
+    assert isinstance(issues, list) and issues, raised.value.message
