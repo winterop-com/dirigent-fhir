@@ -1,6 +1,6 @@
 """``fhir.search``: pages followed by next link under a cap, and never off the connection's origin."""
 
-from typing import Any
+from typing import Any, cast
 
 import httpx2
 import pytest
@@ -26,6 +26,7 @@ async def test_every_page_is_followed_and_folded_into_one_searchset(ctx: FakeCon
     _patients(server, 5)
     out = await call_block(FhirSearchOperator(), _config(), ctx)
     assert isinstance(out, FhirSearchOutput)
+    assert out.bundle is not None
     assert (out.count, out.total, out.pages, out.complete) == (5, 5, 3, True)
     assert out.bundle["resourceType"] == "Bundle"
     assert out.bundle["type"] == "searchset"
@@ -108,5 +109,40 @@ async def test_an_outcome_entry_is_answered_as_issues_not_as_a_result(ctx: FakeC
     out = await call_block(FhirSearchOperator(), _config(params={"foo": "1"}), ctx)
     assert isinstance(out, FhirSearchOutput)
     assert out.count == 0
+    assert out.bundle is not None
     assert "entry" not in out.bundle
     assert [issue.describe() for issue in out.issues] == ["warning not-supported: unknown: foo"]
+
+
+async def test_pages_are_handed_on_one_bundle_each_for_a_fan_out(ctx: FakeContext, server: FhirServer) -> None:
+    _patients(server, 5)
+    out = await call_block(FhirSearchOperator(), _config(emit="pages"), ctx)
+    assert isinstance(out, FhirSearchOutput)
+    assert out.bundle is None and out.resources is None
+    assert out.bundles is not None
+    assert [bundle["type"] for bundle in out.bundles] == ["searchset"] * 3
+    values: list[list[Any]] = [
+        [entry["resource"]["identifier"][0]["value"] for entry in cast("list[Any]", bundle["entry"])]
+        for bundle in out.bundles
+    ]
+    assert values == [["p0", "p1"], ["p2", "p3"], ["p4"]]
+    assert (out.count, out.pages, out.complete) == (5, 3, True)
+
+
+async def test_resources_are_handed_on_one_each_for_a_fan_out(ctx: FakeContext, server: FhirServer) -> None:
+    _patients(server, 5)
+    out = await call_block(FhirSearchOperator(), _config(emit="resources"), ctx)
+    assert isinstance(out, FhirSearchOutput)
+    assert out.bundle is None and out.bundles is None
+    assert out.resources == server.all("Patient")
+    assert out.count == 5
+
+
+async def test_an_empty_search_hands_on_an_empty_list_which_skips_the_fan_out(
+    ctx: FakeContext, server: FhirServer
+) -> None:
+    for emit in ("pages", "resources"):
+        out = await call_block(FhirSearchOperator(), _config(emit=emit), ctx)
+        assert isinstance(out, FhirSearchOutput)
+        assert (out.bundles if emit == "pages" else out.resources) == []
+        assert (out.count, out.pages) == (0, 1)

@@ -59,6 +59,8 @@ Idempotent. Reads.
 
 Searches `GET [base]/{resource_type}` and follows `Bundle.link[next]` for at most `max_pages` pages, folding every page into one `searchset` Bundle built through the engine's R4 `Bundle` model. A next link is followed only on the origin of the connection's `base_url`: a link to any other scheme, host or port fails the step before anything is sent there. An entry the server marks as an `outcome` is answered under `issues` rather than inside the Bundle. Every page is held to the connection's `max_response` and `request_deadline` on its own.
 
+`emit` decides what the step hands on. The default folds every page into one Bundle. `pages` and `resources` hand on a list instead, which is what a following step's `for_each` maps over: `for_each: ${steps.find.output.bundles}` gives each page its own item, with its own status and retry, and `${item}` is that page's Bundle. A page that holds no result is left out, so an empty search hands on an empty list, and an empty list skips the fan-out. The grid is written when the search has succeeded, and it is held to the instance's `fan_out_max_items`.
+
 **Config**
 
 | Field | Type | Required | Default | Description |
@@ -68,13 +70,16 @@ Searches `GET [base]/{resource_type}` and follows `Bundle.link[next]` for at mos
 | `params` | `object of string or string[]` |  |  | The search parameters as FHIR spells them, such as `{identifier: "http://example.org/mrn\|", _count: "50"}`; a list sends the parameter once per value, which FHIR reads as AND. |
 | `max_pages` | `integer` |  | `10` | The most pages followed, the first included. |
 | `on_more` | `"fail" or "stop"` |  | `"fail"` | What a next link past `max_pages` does: `fail` fails the step, `stop` answers with the pages read and `complete` false. |
+| `emit` | `"bundle" or "pages" or "resources"` |  | `"bundle"` | What the step hands on: `bundle` folds every page into one Bundle under `bundle`, `pages` lists each page as its own searchset Bundle under `bundles`, and `resources` lists every resource under `resources`, so a following step's `for_each` maps over either list. |
 
 **Output**
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `bundle` | `object` | yes |  | A `searchset` Bundle holding every entry of every page read, as plain FHIR JSON. |
-| `count` | `integer` | yes |  | How many entries the Bundle holds, included resources counted. |
+| `bundle` | `object or null` |  | `null` | With `emit: bundle`, a `searchset` Bundle holding every entry of every page read, as plain FHIR JSON. |
+| `bundles` | `object[] or null` |  | `null` | With `emit: pages`, one `searchset` Bundle per page read that holds a result, in the order the server answered them. |
+| `resources` | `object[] or null` |  | `null` | With `emit: resources`, every resource of every page read, included resources counted, in order. |
+| `count` | `integer` | yes |  | How many entries the pages hold, included resources counted. |
 | `total` | `integer or null` |  | `null` | How many matches the server says there are, when it says. |
 | `pages` | `integer` | yes |  | How many pages were read. |
 | `complete` | `boolean` | yes |  | Whether the last page read had no next link. |
