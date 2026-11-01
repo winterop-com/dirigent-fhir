@@ -21,11 +21,14 @@ Documentation: the [`docs/`](docs/) directory, built with `uv run mkdocs build -
 
 ## Install
 
-The pack is not on PyPI yet. Install it from a checkout:
+Add it to a dirigent project, or start one with it:
 
 ```bash
-uv add /path/to/dirigent-fhir
+uv add dirigent-fhir
+dg init --pack dirigent-fhir
 ```
+
+It moves in step with dirigent: install the version that matches the runtime.
 
 An instance discovers the pack by installing it: the `dirigent.plugins.v1` entry point in
 `pyproject.toml` is the whole registration.

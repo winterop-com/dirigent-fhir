@@ -49,8 +49,4 @@ uv add dirigent-fhir
 ```
 
 An instance discovers the pack by installing it: the `dirigent.plugins.v1` entry point is the whole
-registration. Until the pack is on PyPI, install it from a checkout:
-
-```bash
-uv add /path/to/dirigent-fhir
-```
+registration. It moves in step with dirigent: install the version that matches the runtime.
