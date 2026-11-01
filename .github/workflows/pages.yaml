@@ -26,7 +26,7 @@ jobs:
 
       # setup-uv stopped publishing major tags at v8, so pin the exact version.
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.3.2
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
