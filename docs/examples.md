@@ -19,6 +19,7 @@ docker run -d --name fhir-target -p 8091:8080 hapiproject/hapi:v8.12.0-2
 | `fhir-copy-page-by-page` | Copy patients and observations to another server, a transaction per page. |
 | `fhir-fhirpath-high-readings` | Find body weights over a limit, and the patients they belong to, with FHIRPath. |
 | `fhir-validate-before-copy` | Validate a search's resources, and copy them only if they are sound. |
+| `fhir-measure-heavy-adults` | Score heavy adults as a proportion of adults, with CQL, into a MeasureReport. |
 
 ## FHIR to FHIR on a schedule
 

@@ -6,6 +6,14 @@ from importlib.resources.abc import Traversable
 
 from dirigent_fhir.client import FhirClient
 from dirigent_fhir.connection import FhirConnectionConfig, FhirConnectionKind, build_client, client_for
+from dirigent_fhir.cql import (
+    FhirCqlConfig,
+    FhirCqlOperator,
+    FhirCqlOutput,
+    FhirMeasureConfig,
+    FhirMeasureOperator,
+    FhirMeasureOutput,
+)
 from dirigent_fhir.create import FhirCreateConfig, FhirCreateOperator
 from dirigent_fhir.fhirpath import FhirPathConfig, FhirPathFilterer, FhirPathMapper, FhirPathTransformer
 from dirigent_fhir.messages import FHIR
@@ -41,6 +49,8 @@ class FhirPlugin:
                 FhirUpdateOperator(),
                 FhirTransactionOperator(),
                 FhirValidateOperator(),
+                FhirCqlOperator(),
+                FhirMeasureOperator(),
                 FhirPathTransformer(),
                 FhirPathMapper(),
                 FhirPathFilterer(),
@@ -62,10 +72,16 @@ __all__ = [
     "FhirClient",
     "FhirConnectionConfig",
     "FhirConnectionKind",
+    "FhirCqlConfig",
+    "FhirCqlOperator",
+    "FhirCqlOutput",
     "FhirCreateConfig",
     "FhirCreateOperator",
     "FhirEntryResult",
     "FhirIssue",
+    "FhirMeasureConfig",
+    "FhirMeasureOperator",
+    "FhirMeasureOutput",
     "FhirPathConfig",
     "FhirPathFilterer",
     "FhirPathMapper",

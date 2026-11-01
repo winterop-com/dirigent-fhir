@@ -12,7 +12,8 @@ are dirigent's own `transform`, `map` and `filter` frames with FHIRPath as their
 declare the `transform` group, take no connection, and reach no server.
 
 **Effect** says what a block does to the server: the two reads change nothing there, the three
-writes do, and `fhir.validate` and the three FHIRPath verbs only compute, on what they are handed. **Idempotent** says whether re-running the block after an unclear
+writes do, and `fhir.validate`, `fhir.cql`, `fhir.measure` and the three FHIRPath verbs only compute, on what
+they are handed. **Idempotent** says whether re-running the block after an unclear
 failure is safe. The engine spends the step's retry budget either way, so this is what to read
 before writing `max_attempts` above 1. No block in this pack runs code on the worker, so none
 has to be allowlisted.
@@ -28,6 +29,8 @@ storage work on it unchanged.
 | [`fhir.update`](#fhirupdate) | writes | yes | Update a FHIR resource matched on its identifier. |
 | [`fhir.transaction`](#fhirtransaction) | writes | yes | Write FHIR resources in one transaction or batch. |
 | [`fhir.validate`](#fhirvalidate) | computes | yes | Validate FHIR resources and Bundles structurally. |
+| [`fhir.cql`](#fhircql) | computes | yes | Evaluate a CQL library over FHIR resources. |
+| [`fhir.measure`](#fhirmeasure) | computes | yes | Evaluate a measure and answer a MeasureReport. |
 | [`transform.fhirpath`](#transformfhirpath) | computes | yes | Reshape a value with a FHIRPath expression. |
 | [`map.fhirpath`](#mapfhirpath) | computes | yes | Replace every element of a list with what a FHIRPath expression makes of it. |
 | [`filter.fhirpath`](#filterfhirpath) | computes | yes | Keep the elements of a list a FHIRPath expression answers true for. |
@@ -216,6 +219,70 @@ An error fails the step with `fhir.validate.invalid`, classified `rejected`, nam
 | `truncated` | `boolean` |  | `false` | Whether validation stopped at `max_issues` with more left to check. |
 | `outcome` | `object` | yes |  | The issues as an `OperationOutcome`, built through the engine's model, as plain FHIR JSON. |
 
+### `fhir.cql`
+
+Evaluate a CQL library over FHIR resources.
+
+Idempotent. Computes. Takes no connection.
+
+Evaluates a CQL library, written in the step as source, on the engine's CQL evaluator over the resources in `data`: a Bundle, such as a `fhir.search` step's `bundle`, or a list of resources, read through the engine's Bundle data source, so a retrieve such as `[Observation: "Body weight"]` reads what the step was handed and nothing else. A library in the `Patient` context is evaluated once for each patient the data carries, answering under `patients`; one with no `Patient` context is evaluated once, answering under `values`. FHIRHelpers 4.0.1 is built in. A value reaches the library only as a CQL parameter, by name under `parameters`, and dirigent refuses a `${...}` written in `library` itself.
+
+A library is compiled at apply, where a bad one is refused with the compiler's message, and evaluated in a runner process of its own, so a step's timeout ends a long evaluation and the worker's event loop stays free. A definition that fails to evaluate fails the step with `fhir.cql.definitions_failed`, `rejected`, naming the first three. Values are plain JSON: a decimal a number, a date its FHIR spelling, a code `{code, system}`, an interval `{low, high, lowClosed, highClosed}`, a resource as FHIR JSON. Libraries are not resolved from storage or a package, and terminology for `in` comes only from what the library and the data carry.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `library` | `string` | yes |  | The CQL library, as source, with `using FHIR version '4.0.1'`. |
+| `data` | `any JSON value` | yes |  | The resources the library reads: a Bundle, such as a `fhir.search` step's `bundle`, or a list of resources. |
+| `parameters` | `object` |  |  | Values for the library's parameters by name, each written inline or as a `${...}` reference. |
+| `max_output` | `size` |  | `"16mb"` | The most the evaluation's answer may run to as JSON, such as `16MB`. |
+| `definitions` | `string[] or null` |  | `null` | The definitions answered, every one the library defines when unset. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `context` | `"Patient" or "Unfiltered"` | yes |  | `Patient` when the library evaluates per patient, `Unfiltered` when once over everything. |
+| `values` | `object` |  |  | In the Unfiltered context, each definition's value by name. |
+| `patients` | `object[]` |  |  | In the Patient context, each patient the data carries with that patient's values. |
+
+### `fhir.measure`
+
+Evaluate a measure and answer a MeasureReport.
+
+Idempotent. Computes. Takes no connection.
+
+Evaluates a measure's CQL library over the resources in `data` as `fhir.cql` does, and answers a summary `MeasureReport`. The library names its populations the conventional way, `Initial Population`, `Denominator`, `Denominator Exclusion`, `Denominator Exception`, `Numerator` and `Numerator Exclusion`, in the `Patient` context. The engine evaluates each definition for each patient the data carries; the block then nests them the way the scoring nests them before it counts, so a patient is in the numerator only when the denominator holds it:
+
+- `proportion`: the denominator is drawn from the initial population, the numerator from the denominator less its exclusions, and an exception only from a denominator member the numerator does not hold. The score is (numerator - numerator exclusion) / (denominator - denominator exclusion - denominator exception).
+- `ratio`: the numerator and the denominator are each drawn from the initial population, apart. The score is (numerator - numerator exclusion) / (denominator - denominator exclusion).
+- `cohort`: the initial population only, and no score.
+
+A library with no `Initial Population` fails the step with `fhir.measure.no_populations`. The report states `measure` and the reporting period as given, and each population with its code from `http://terminology.hl7.org/CodeSystem/measure-population`. Continuous-variable measures, stratifiers and the library's own `Measurement Period` are not read into the report.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `library` | `string` | yes |  | The CQL library, as source, with `using FHIR version '4.0.1'`. |
+| `data` | `any JSON value` | yes |  | The resources the library reads: a Bundle, such as a `fhir.search` step's `bundle`, or a list of resources. |
+| `parameters` | `object` |  |  | Values for the library's parameters by name, each written inline or as a `${...}` reference. |
+| `max_output` | `size` |  | `"16mb"` | The most the evaluation's answer may run to as JSON, such as `16MB`. |
+| `measure` | `string` | yes |  | The canonical URL of the Measure the report is about, such as `http://example.org/Measure/heavy`. |
+| `period_start` | `string` | yes |  | The start of the reporting period, a FHIR date or dateTime, as the report states it. |
+| `period_end` | `string` | yes |  | The end of the reporting period, a FHIR date or dateTime, as the report states it. |
+| `scoring` | `"proportion" or "ratio" or "cohort"` |  | `"proportion"` | How the populations nest and are scored: `proportion` nests each in the one before it, `ratio` keeps the numerator and denominator apart, `cohort` counts the initial population only. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `populations` | `object` | yes |  | How many patients each population the library defines holds, by population code. |
+| `score` | `number or null` |  | `null` | The measure score: numerator over denominator after exclusions and exceptions; none for a cohort or an empty denominator. |
+| `members` | `object` | yes |  | Which patients each population holds, as `Patient/id`. |
+| `report` | `object` | yes |  | A summary `MeasureReport`, as plain FHIR JSON, for a later step to write or hand on. |
+
 ## FHIRPath on the verb frames
 
 `transform.fhirpath`, `map.fhirpath` and `filter.fhirpath` are dirigent's
@@ -390,6 +457,10 @@ stream of run records is selected by code however the English is later reworded 
 | `fhir.validate.contained_missing` | `{reference} names a contained resource this resource does not contain` |
 | `fhir.validate.duplicate_full_url` | `the Bundle carries {full_url} as the fullUrl of more than one entry` |
 | `fhir.validate.profile` | `the resource does not conform to {profile}: it does not claim it under meta.profile, and it is not the base definition of its type` |
+| `fhir.cql.refused` | `the CQL library was refused: {detail}` |
+| `fhir.cql.definitions_failed` | `{count} definitions failed to evaluate: {detail}` |
+| `fhir.cql.output_too_large` | `the evaluation's answer runs past max_output ({limit} bytes); ask for fewer definitions, or raise max_output` |
+| `fhir.measure.no_populations` | `the library defines no Initial Population, so there is nothing to count; a measure's library names its populations Initial Population, Denominator, Numerator and their exclusions and exceptions` |
 | `fhir.fhirpath.refused` | `the FHIRPath expression does not parse: {detail}` |
 | `fhir.fhirpath.unbound_variable` | `the expression reads %{name}, which the step's variables do not bind; give it a value there, or correct the name` |
 | `fhir.fhirpath.reserved_variable` | `variables binds %{name}, which FHIRPath defines itself; choose another name` |

@@ -12,10 +12,19 @@ from dirigent_fhir import FhirPlugin, plugin
 from dirigent_plugin import ENTRY_POINT_GROUP, PROJECT_NAME, contribute, markers
 from dirigent_testing import assert_contribution_conforms, check_pack_messages
 
-FHIR_BLOCKS = ["fhir.create", "fhir.read", "fhir.search", "fhir.transaction", "fhir.update", "fhir.validate"]
+FHIR_BLOCKS = [
+    "fhir.cql",
+    "fhir.create",
+    "fhir.measure",
+    "fhir.read",
+    "fhir.search",
+    "fhir.transaction",
+    "fhir.update",
+    "fhir.validate",
+]
 
 #: The fhir blocks that compute on what they are handed and reach no server.
-OFFLINE = {"fhir.validate"}
+OFFLINE = {"fhir.cql", "fhir.measure", "fhir.validate"}
 
 #: The FHIRPath engines on dirigent's verb frames, which compute and reach no server.
 FHIRPATH_VERBS = ["filter.fhirpath", "map.fhirpath", "transform.fhirpath"]

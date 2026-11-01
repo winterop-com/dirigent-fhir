@@ -146,3 +146,18 @@ VALIDATE_PROFILE = FHIR.define(
     "the resource does not conform to {profile}: it does not claim it under meta.profile, and it is not the "
     "base definition of its type",
 )
+
+CQL_REFUSED = FHIR.define("cql.refused", "the CQL library was refused: {detail}")
+
+CQL_DEFINITIONS_FAILED = FHIR.define("cql.definitions_failed", "{count} definitions failed to evaluate: {detail}")
+
+CQL_OUTPUT_TOO_LARGE = FHIR.define(
+    "cql.output_too_large",
+    "the evaluation's answer runs past max_output ({limit} bytes); ask for fewer definitions, or raise max_output",
+)
+
+MEASURE_NO_POPULATIONS = FHIR.define(
+    "measure.no_populations",
+    "the library defines no Initial Population, so there is nothing to count; a measure's library names its "
+    "populations Initial Population, Denominator, Numerator and their exclusions and exceptions",
+)

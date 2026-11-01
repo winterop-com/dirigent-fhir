@@ -2,7 +2,7 @@
 
 These pipelines use the blocks the `dirigent-fhir` pack contributes: a read, a paged search, a
 conditional create, a conditional update, a transaction that carries many resources at once with
-the references between them rewritten, structural validation, and the FHIRPath verbs `transform.fhirpath`,
+the references between them rewritten, structural validation, CQL and measures, and the FHIRPath verbs `transform.fhirpath`,
 `map.fhirpath` and `filter.fhirpath`. Installing the pack is what puts
 the blocks in the catalog; an instance without it refuses these at the block preflight.
 
@@ -28,3 +28,4 @@ under `requires.connections`, so create a `fhir` connection under that code or r
 | [fhir-copy-page-by-page.yaml](fhir-copy-page-by-page.yaml) | Copy a search to another server, one transaction per page, fanned out. |
 | [fhir-fhirpath-high-readings.yaml](fhir-fhirpath-high-readings.yaml) | Filter, map and reshape a search's observations with FHIRPath. |
 | [fhir-validate-before-copy.yaml](fhir-validate-before-copy.yaml) | Validate a search's resources structurally, and copy them only if they are sound. |
+| [fhir-measure-heavy-adults.yaml](fhir-measure-heavy-adults.yaml) | Evaluate CQL over a search, and score a measure into a MeasureReport. |
