@@ -1,0 +1,81 @@
+# Validate a search's resources before copying them to another server.
+#
+# fhir.validate is a gate: it reads what it is handed and fails the step on an error, so a
+# copy behind it only runs on resources that are structurally sound. Nothing is sent anywhere
+# to validate: the rules are FHIR's JSON format, and the engine's R4 model for each type it
+# models.
+#
+# HOP BY HOP:
+#
+#   find    fhir.search on the source, every page folded into one Bundle.
+#   check   fhir.validate over that Bundle and every entry in it. An error fails the step as
+#           rejected, naming the first issues by the FHIRPath of the element each is about,
+#           such as Bundle.entry[3].resource.gender, with every issue under the failure's
+#           `issues`.
+#   copy    fhir.transaction on the target, which runs only when `check` succeeded.
+#
+# Set `on_invalid: report` to let the run carry on and read `valid`, `issues` and `outcome`,
+# an OperationOutcome, from the step's output instead.
+#
+# Both connections are local HAPI FHIR servers; start two with
+#
+#   docker run -d -p 8090:8080 hapiproject/hapi:v8.12.0-2
+#   docker run -d -p 8091:8080 hapiproject/hapi:v8.12.0-2
+#
+#   dg run --local examples/fhir/fhir-validate-before-copy.yaml
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-validate-before-copy
+name: Validate, then copy
+description: |
+  Validate a search's resources, and copy them only if they are sound.
+
+  fhir.validate holds every resource to FHIR's JSON rules and the engine's R4 models, and
+  fails the step on an error, so the copy behind it never sends a malformed resource.
+
+tags: [fhir, validation, starter]
+
+requires:
+  blocks:
+    - fhir.search
+    - fhir.validate
+    - fhir.transaction
+
+connections:
+  fhir-source:
+    name: Source FHIR server
+    description: A local HAPI FHIR server the patients are read from.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+  fhir-target:
+    name: Target FHIR server
+    description: A local HAPI FHIR server the patients are written to.
+    kind: fhir
+    config:
+      base_url: http://localhost:8091/fhir
+
+steps:
+  find:
+    block: fhir.search
+    config:
+      connection: fhir-source
+      resource_type: Patient
+      params:
+        _revinclude: Observation:subject
+        _count: "100"
+      max_pages: 20
+
+  check:
+    block: fhir.validate
+    depends_on: [find]
+    config:
+      input: ${steps.find.output.bundle}
+
+  copy:
+    block: fhir.transaction
+    depends_on: [check]
+    config:
+      connection: fhir-target
+      bundle: ${steps.find.output.bundle}

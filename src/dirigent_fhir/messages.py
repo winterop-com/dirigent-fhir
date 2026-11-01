@@ -106,3 +106,43 @@ FHIRPATH_FILTER_ANSWER = FHIR.define(
     "the expression answered {answer}, and a filter answers true, false or nothing; "
     "end it in a boolean, such as exists() or count() > 0",
 )
+
+VALIDATE_INVALID = FHIR.define(
+    "validate.invalid", "{count} issues were found in the {checked} resources checked: {detail}"
+)
+
+VALIDATE_NOT_A_RESOURCE = FHIR.define(
+    "validate.not_a_resource", "this is not a FHIR resource: an object with a resourceType such as Patient"
+)
+
+VALIDATE_RESOURCE_ID = FHIR.define("validate.resource_id", "an id is 1 to 64 letters, digits, hyphens and dots")
+
+VALIDATE_MODEL = FHIR.define("validate.model", "the engine's R4 model refuses it: {detail}")
+
+VALIDATE_EMPTY = FHIR.define(
+    "validate.empty", "an element is left out rather than written empty, which FHIR JSON does not allow"
+)
+
+VALIDATE_NULL = FHIR.define(
+    "validate.null",
+    "null is not a FHIR value; it stands in a repeating primitive only where the _element beside it carries extensions",
+)
+
+VALIDATE_UNRESOLVABLE_REFERENCE = FHIR.define(
+    "validate.unresolvable_reference",
+    "{reference} is not a reference a server resolves: Type/id, an absolute URL, a urn:uuid or urn:oid, or #id",
+)
+
+VALIDATE_CONTAINED_MISSING = FHIR.define(
+    "validate.contained_missing", "{reference} names a contained resource this resource does not contain"
+)
+
+VALIDATE_DUPLICATE_FULL_URL = FHIR.define(
+    "validate.duplicate_full_url", "the Bundle carries {full_url} as the fullUrl of more than one entry"
+)
+
+VALIDATE_PROFILE = FHIR.define(
+    "validate.profile",
+    "the resource does not conform to {profile}: it does not claim it under meta.profile, and it is not the "
+    "base definition of its type",
+)
