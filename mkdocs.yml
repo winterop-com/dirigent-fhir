@@ -1,0 +1,53 @@
+site_name: dirigent-fhir
+site_description: The FHIR pack for dirigent. A connection kind and the REST blocks for one FHIR server.
+site_url: https://winterop-com.github.io/dirigent-fhir/
+repo_url: https://github.com/winterop-com/dirigent-fhir
+edit_uri: ""
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Connection: connection.md
+  - Blocks: blocks.md
+  - Examples: examples.md
+  - Releases: releases.md
+
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/winterop-com/dirigent-fhir

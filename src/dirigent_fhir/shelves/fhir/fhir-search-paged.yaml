@@ -1,0 +1,45 @@
+# Search one resource type and follow the server's pages.
+#
+# A FHIR server answers a search one page at a time, each page a Bundle whose `next` link
+# names the following one. fhir.search follows those links for at most `max_pages` pages and
+# folds every page into one searchset Bundle. A next link that points anywhere but the
+# connection's own origin is refused rather than followed, so a server cannot send the
+# credential somewhere else.
+#
+# `on_more: stop` makes the cap a sample rather than a failure: the step answers the pages it
+# read, with `complete` false. Leave it at `fail` for anything that copies.
+#
+#   dg run --local examples/fhir/fhir-search-paged.yaml
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-search-paged
+name: Search FHIR, page by page
+description: |
+  Search patients, following next links for at most five pages.
+
+tags: [fhir, starter]
+
+requires:
+  blocks:
+    - fhir.search
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+steps:
+  search:
+    block: fhir.search
+    config:
+      connection: fhir-local
+      resource_type: Patient
+      params:
+        _count: "20"
+        _sort: _id
+      max_pages: 5
+      on_more: stop

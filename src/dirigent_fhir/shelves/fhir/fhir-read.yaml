@@ -1,0 +1,49 @@
+# Read one resource by its type and id.
+#
+# The smallest thing the pack does, and the one to start from: a read answers the resource as
+# plain FHIR JSON under `resource`, which every step after it reads like any other value.
+# A resource the server does not hold fails the step with the server's own OperationOutcome
+# in the message, rejected rather than retried.
+#
+#   dg run --local examples/fhir/fhir-read.yaml -p id=1
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-read
+name: Read one FHIR resource
+description: |
+  Read one resource by its type and id.
+
+tags: [fhir, starter]
+
+requires:
+  blocks:
+    - fhir.read
+
+params:
+  type: object
+  properties:
+    resource_type:
+      type: string
+      default: Patient
+      description: The resource type to read.
+    id:
+      type: string
+      default: "1"
+      description: The resource's id on the server.
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+steps:
+  read:
+    block: fhir.read
+    config:
+      connection: fhir-local
+      resource_type: "${params.resource_type}"
+      id: "${params.id}"

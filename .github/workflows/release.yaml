@@ -1,0 +1,50 @@
+name: release
+
+# A `v*` tag publishes the pack to PyPI by trusted publishing: PyPI verifies the OIDC token
+# GitHub mints for this workflow file and environment, so no token is stored here.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  pypi:
+    name: publish to PyPI
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # setup-uv stopped publishing major tags at v8, so pin the exact version.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      # The tag and the package must agree, or the release would publish the previous version.
+      - name: Check the tag matches the version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
+          [ "$version" = "$tag" ] || { echo "pyproject carries $version, tag says $tag"; exit 1; }
+
+      # A tag is not a reason to skip the tests: what publishes is what passed.
+      - name: Sync
+        run: uv sync --locked
+
+      - name: Test
+        run: uv run pytest -m "not live"
+
+      - name: Build the wheel and sdist
+        run: uv build
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

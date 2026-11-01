@@ -1,0 +1,46 @@
+# Write a resource over the one with the same identifier, or create it.
+#
+# fhir.update is a conditional update: `PUT Patient?identifier=system|value`. The server
+# writes over the one resource that identifier matches, creates it when none does, and refuses
+# when several do. The resource's own `id` is never sent, so an id that came from another
+# server can never decide what is overwritten here.
+#
+#   dg run --local examples/fhir/fhir-update-by-identifier.yaml
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-update-by-identifier
+name: Update a FHIR resource by identifier
+description: |
+  Write a patient over the one with the same identifier, or create it.
+
+tags: [fhir, starter]
+
+requires:
+  blocks:
+    - fhir.update
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+steps:
+  update:
+    block: fhir.update
+    config:
+      connection: fhir-local
+      resource:
+        resourceType: Patient
+        id: id-on-another-server
+        identifier:
+          - system: http://example.org/mrn
+            value: "12345"
+        name:
+          - family: Nordmann
+            given: [Kari]
+        birthDate: "1980-04-01"
+      identifier_system: http://example.org/mrn

@@ -1,0 +1,44 @@
+# Create a resource once, however many times the step runs.
+#
+# A plain create makes a new resource every time it runs, so a retry after a timeout leaves two.
+# `if_none_exist` makes it conditional: the server creates the resource only when nothing
+# matches the search, and otherwise answers with the one that does. The step says which under
+# `outcome`: `created` the first time, `existing` every time after.
+#
+#   dg run --local examples/fhir/fhir-create-if-none-exist.yaml
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-create-if-none-exist
+name: Create a FHIR resource once
+description: |
+  Create a patient unless one with the same identifier is already there.
+
+tags: [fhir, starter]
+
+requires:
+  blocks:
+    - fhir.create
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+steps:
+  create:
+    block: fhir.create
+    config:
+      connection: fhir-local
+      resource:
+        resourceType: Patient
+        identifier:
+          - system: http://example.org/mrn
+            value: "12345"
+        name:
+          - family: Nordmann
+            given: [Kari]
+      if_none_exist: identifier=http://example.org/mrn|12345

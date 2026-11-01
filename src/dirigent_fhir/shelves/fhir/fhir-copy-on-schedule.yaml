@@ -1,0 +1,91 @@
+# Copy patients and their observations from one FHIR server to another, every night.
+#
+# The pack's first flagship: FHIR to FHIR, neither server DHIS2. One search reads every patient
+# on the source together with the observations that point at them, and one transaction writes
+# the lot to the target. Nothing in between: the search answers a plain FHIR searchset Bundle,
+# and the transaction takes that Bundle as it is.
+#
+# HOP BY HOP:
+#
+#   find    fhir.search on the source. `_revinclude=Observation:subject` asks the server for
+#           each matching patient's observations in the same pages, so a patient and the
+#           observations about it always travel together. The search follows the server's
+#           next links on the source's own origin, at most `max_pages` of them, and fails
+#           rather than copying half when there are more.
+#   copy    fhir.transaction on the target. Every resource becomes a `urn:uuid` entry, and
+#           every reference between them, `Observation.subject` here, is rewritten to that
+#           urn, so the target resolves it to wherever it stores the patient. Each entry is a
+#           conditional update on the resource's identifier: the source server's ids are
+#           never sent, and a second night writes over what the first night created rather
+#           than creating it again.
+#
+# A resource without an identifier fails the step instead of being copied, because without one
+# there is nothing to tell the second night's copy from the first.
+#
+# Both connections are local HAPI FHIR servers; start two with
+#
+#   docker run -d -p 8090:8080 hapiproject/hapi:v8.12.0-2
+#   docker run -d -p 8091:8080 hapiproject/hapi:v8.12.0-2
+#
+#   dg run --local examples/fhir/fhir-copy-on-schedule.yaml
+#
+# TO MAKE IT YOURS: point the two connections at your servers, narrow the search with the
+# parameters your source takes (`_lastUpdated=ge2026-01-01`, a `_tag`), and name the identifier
+# system your patients are matched on under `identifier_system`.
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-copy-on-schedule
+name: Copy FHIR to FHIR every night
+description: |
+  Copy patients and their observations from one FHIR server to another, nightly.
+
+  One search on the source, one transaction on the target, references rewritten between them
+  and every write conditional on the resource's identifier, so a second run creates nothing new.
+
+tags: [fhir, schedule, starter]
+
+requires:
+  blocks:
+    - fhir.search
+    - fhir.transaction
+
+connections:
+  fhir-source:
+    name: Source FHIR server
+    description: A local HAPI FHIR server the patients are read from.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+  fhir-target:
+    name: Target FHIR server
+    description: A local HAPI FHIR server the patients are written to.
+    kind: fhir
+    config:
+      base_url: http://localhost:8091/fhir
+
+triggers:
+  schedules:
+    - code: nightly
+      name: Nightly
+      description: Copies whatever the source holds by two in the morning.
+      cron: "0 2 * * *"
+      timezone: UTC
+
+steps:
+  find:
+    block: fhir.search
+    config:
+      connection: fhir-source
+      resource_type: Patient
+      params:
+        _revinclude: Observation:subject
+        _count: "100"
+      max_pages: 20
+
+  copy:
+    block: fhir.transaction
+    depends_on: [find]
+    config:
+      connection: fhir-target
+      bundle: ${steps.find.output.bundle}

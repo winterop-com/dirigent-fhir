@@ -1,0 +1,93 @@
+[project]
+name = "dirigent-fhir"
+version = "0.29.0"
+description = "The FHIR pack for dirigent: a connection kind and the REST blocks for one FHIR server."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "dhis2w-fhir-engine>=1.38.2,<2",
+    "dirigent-common==0.29.0",
+    "dirigent-plugin==0.29.0",
+    "httpx2>=2.12.0",
+]
+
+[project.urls]
+Documentation = "https://winterop-com.github.io/dirigent-fhir/"
+Repository = "https://github.com/winterop-com/dirigent-fhir"
+
+[project.entry-points."dirigent.plugins.v1"]
+fhir = "dirigent_fhir:plugin"
+
+[dependency-groups]
+dev = [
+    "dirigent-testing==0.29.0",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.7",
+    "mypy>=1.19",
+    "pymdown-extensions>=11.0.2",
+    "pyright>=1.1",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pyyaml>=6",
+    "ruff>=0.16",
+    "types-pyyaml>=6",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "live: reaches a real FHIR server; opt in with DIRIGENT_LIVE=1 and FHIR_LIVE_URL",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "D", "SIM", "UP", "B", "TID"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D103", "D100", "D101", "D102", "D104"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["dirigent_common", "dirigent_fhir", "dirigent_plugin", "dirigent_testing"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.13"
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_equality = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests"]
+mypy_path = ["tests"]
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+include = ["src", "tests"]
+extraPaths = ["tests"]
+reportMissingTypeStubs = false
