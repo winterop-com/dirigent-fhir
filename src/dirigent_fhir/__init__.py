@@ -19,6 +19,7 @@ from dirigent_fhir.transaction import (
     FhirTransactionOutput,
 )
 from dirigent_fhir.update import FhirUpdateConfig, FhirUpdateOperator
+from dirigent_fhir.validate import FhirValidateConfig, FhirValidateOperator, FhirValidateOutput
 from dirigent_fhir.writes import FhirWriteOutput
 from dirigent_plugin import Contribution, extension
 
@@ -39,6 +40,7 @@ class FhirPlugin:
                 FhirCreateOperator(),
                 FhirUpdateOperator(),
                 FhirTransactionOperator(),
+                FhirValidateOperator(),
                 FhirPathTransformer(),
                 FhirPathMapper(),
                 FhirPathFilterer(),
@@ -80,6 +82,9 @@ __all__ = [
     "FhirTransactionOutput",
     "FhirUpdateConfig",
     "FhirUpdateOperator",
+    "FhirValidateConfig",
+    "FhirValidateOperator",
+    "FhirValidateOutput",
     "FhirWriteOutput",
     "build_client",
     "client_for",

@@ -12,7 +12,10 @@ from dirigent_fhir import FhirPlugin, plugin
 from dirigent_plugin import ENTRY_POINT_GROUP, PROJECT_NAME, contribute, markers
 from dirigent_testing import assert_contribution_conforms, check_pack_messages
 
-FHIR_BLOCKS = ["fhir.create", "fhir.read", "fhir.search", "fhir.transaction", "fhir.update"]
+FHIR_BLOCKS = ["fhir.create", "fhir.read", "fhir.search", "fhir.transaction", "fhir.update", "fhir.validate"]
+
+#: The fhir blocks that compute on what they are handed and reach no server.
+OFFLINE = {"fhir.validate"}
 
 #: The FHIRPath engines on dirigent's verb frames, which compute and reach no server.
 FHIRPATH_VERBS = ["filter.fhirpath", "map.fhirpath", "transform.fhirpath"]
@@ -28,7 +31,7 @@ IDEMPOTENT_WRITES = {"fhir.update", "fhir.transaction"}
 CONTRIBUTION = FhirPlugin().contribute()
 
 #: The blocks that talk to a FHIR server through a connection.
-REST = [operator for operator in CONTRIBUTION.operators if operator.spec.id in FHIR_BLOCKS]
+REST = [operator for operator in CONTRIBUTION.operators if operator.spec.id in set(FHIR_BLOCKS) - OFFLINE]
 
 
 def test_the_pack_contributes_the_fhir_blocks_and_connection_kind() -> None:
@@ -45,11 +48,13 @@ def test_every_block_shelves_under_its_group_and_runs_no_code() -> None:
         assert operator.spec.local_execution is False
 
 
-def test_the_fhirpath_verbs_take_no_connection_and_are_idempotent() -> None:
+def test_the_blocks_that_reach_no_server_take_no_connection_and_are_idempotent() -> None:
     for operator in CONTRIBUTION.operators:
-        if operator.spec.id in FHIRPATH_VERBS:
+        if operator.spec.id in OFFLINE or operator.spec.id in FHIRPATH_VERBS:
             assert "connection" not in operator.config_model.model_fields
             assert operator.spec.idempotent is True
+            if operator.spec.id in OFFLINE:
+                assert (operator.__class__.__doc__ or "").endswith("It touches no server."), operator.spec.id
 
 
 def test_reads_say_they_read_and_writes_say_they_write() -> None:

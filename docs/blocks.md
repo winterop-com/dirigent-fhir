@@ -12,7 +12,7 @@ are dirigent's own `transform`, `map` and `filter` frames with FHIRPath as their
 declare the `transform` group, take no connection, and reach no server.
 
 **Effect** says what a block does to the server: the two reads change nothing there, the three
-writes do, and the three FHIRPath verbs only compute. **Idempotent** says whether re-running the block after an unclear
+writes do, and `fhir.validate` and the three FHIRPath verbs only compute, on what they are handed. **Idempotent** says whether re-running the block after an unclear
 failure is safe. The engine spends the step's retry budget either way, so this is what to read
 before writing `max_attempts` above 1. No block in this pack runs code on the worker, so none
 has to be allowlisted.
@@ -27,6 +27,7 @@ storage work on it unchanged.
 | [`fhir.create`](#fhircreate) | writes | no | Create a FHIR resource, conditionally with ifNoneExist. |
 | [`fhir.update`](#fhirupdate) | writes | yes | Update a FHIR resource matched on its identifier. |
 | [`fhir.transaction`](#fhirtransaction) | writes | yes | Write FHIR resources in one transaction or batch. |
+| [`fhir.validate`](#fhirvalidate) | computes | yes | Validate FHIR resources and Bundles structurally. |
 | [`transform.fhirpath`](#transformfhirpath) | computes | yes | Reshape a value with a FHIRPath expression. |
 | [`map.fhirpath`](#mapfhirpath) | computes | yes | Replace every element of a list with what a FHIRPath expression makes of it. |
 | [`filter.fhirpath`](#filterfhirpath) | computes | yes | Keep the elements of a list a FHIRPath expression answers true for. |
@@ -180,6 +181,40 @@ A transaction the server refuses fails the step with its `OperationOutcome`, and
 | `failed` | `integer` | yes |  | How many entries of a batch failed, under `on_failed: report`. |
 | `entries` | `object[]` | yes |  | One result per resource written, in the order they were sent. |
 | `response` | `object` | yes |  | The server's `transaction-response` or `batch-response` Bundle, as plain FHIR JSON. |
+
+### `fhir.validate`
+
+Validate FHIR resources and Bundles structurally.
+
+Idempotent. Computes. Takes no connection.
+
+Validates a resource, a Bundle with every entry, or a list of resources, and every resource they contain. Two layers, both structural:
+
+- **FHIR's JSON rules, for every resource of any type.** A `resourceType`, an `id` of 1 to 64 letters, digits, hyphens and dots, no element written empty (`""`, `{}`, `[]`) or `null` (a `null` stands in a repeating primitive only where the `_element` beside it carries extensions), and every `reference` in a form a server resolves: `Type/id`, a versioned or conditional one, an absolute URL, a `urn:uuid` or `urn:oid`, or `#id`, which has to name a resource the referring one contains. A Bundle uses each `fullUrl` once.
+- **The engine's R4 model, for a type it models.** `Patient`, `Observation`, `Condition`, `AllergyIntolerance`, `Immunization`, `Organization`, `Location`, `List`, `Questionnaire`, `QuestionnaireResponse`, `Composition`, `Bundle`, `OperationOutcome`, `Parameters`, `CodeSystem`, `ValueSet`, `ConceptMap` and `CapabilityStatement` are validated strictly through the engine's closed model: a coded element's value set, such as `Patient.gender` or `Observation.status`, and every element's JSON type. The engine's models name a subset of each resource's elements, so the resource is projected onto the elements the model names first: an element it does not name, such as `Observation.valueQuantity`, is left unjudged rather than refused.
+
+`profile` holds every resource handed in, a Bundle's entries rather than the Bundle, to the engine's `conformsTo()`: the resource claims the profile under `meta.profile`, or the profile is the base StructureDefinition of its type. That is all the profile support the engine has. It resolves no StructureDefinition, so a profile's own constraints, cardinalities and bindings are not checked, and no package or implementation guide is loaded.
+
+An error fails the step with `fhir.validate.invalid`, classified `rejected`, naming the first three issues and counting the rest, with every issue under the failure's `issues` param. Under `on_invalid: report` the step succeeds and answers `valid` false. Either way each issue carries FHIR's issue type and the FHIRPath of the element it is about, such as `Bundle.entry[1].resource.gender`, and `outcome` is the same issues as an `OperationOutcome` a later step can write or hand on. Validation runs off the event loop.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `any JSON value` | yes |  | A resource, a Bundle whose entries are validated too, or a list of resources, such as a `fhir.search` step's `bundle` or `resources`. |
+| `profile` | `string or null` |  | `null` | A profile's canonical URL every resource handed in must conform to, by the engine's `conformsTo()`: the resource claims it under `meta.profile`, or it is the base StructureDefinition of the resource's type. |
+| `on_invalid` | `"fail" or "report"` |  | `"fail"` | What an error does: `fail` fails the step listing the issues, `report` answers with `valid` false. |
+| `max_issues` | `integer` |  | `100` | The most issues collected before validation stops. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `valid` | `boolean` | yes |  | Whether no issue is an error. |
+| `checked` | `integer` | yes |  | How many resources were checked, contained and Bundle entries counted. |
+| `issues` | `object[]` |  |  | Every issue found, each with the FHIRPath of the element it is about. |
+| `truncated` | `boolean` |  | `false` | Whether validation stopped at `max_issues` with more left to check. |
+| `outcome` | `object` | yes |  | The issues as an `OperationOutcome`, built through the engine's model, as plain FHIR JSON. |
 
 ## FHIRPath on the verb frames
 
@@ -345,6 +380,16 @@ stream of run records is selected by code however the English is later reworded 
 | `fhir.transaction.duplicate` | `the transaction carries {resource} twice, and a reference to it would be ambiguous` |
 | `fhir.transaction.no_response` | `{where} answered with {found} entries for the {sent} the transaction sent, so its outcome is unknown` |
 | `fhir.transaction.entries_failed` | `{failed} of {total} batch entries failed: {detail}` |
+| `fhir.validate.invalid` | `{count} issues were found in the {checked} resources checked: {detail}` |
+| `fhir.validate.not_a_resource` | `this is not a FHIR resource: an object with a resourceType such as Patient` |
+| `fhir.validate.resource_id` | `an id is 1 to 64 letters, digits, hyphens and dots` |
+| `fhir.validate.model` | `the engine's R4 model refuses it: {detail}` |
+| `fhir.validate.empty` | `an element is left out rather than written empty, which FHIR JSON does not allow` |
+| `fhir.validate.null` | `null is not a FHIR value; it stands in a repeating primitive only where the _element beside it carries extensions` |
+| `fhir.validate.unresolvable_reference` | `{reference} is not a reference a server resolves: Type/id, an absolute URL, a urn:uuid or urn:oid, or #id` |
+| `fhir.validate.contained_missing` | `{reference} names a contained resource this resource does not contain` |
+| `fhir.validate.duplicate_full_url` | `the Bundle carries {full_url} as the fullUrl of more than one entry` |
+| `fhir.validate.profile` | `the resource does not conform to {profile}: it does not claim it under meta.profile, and it is not the base definition of its type` |
 | `fhir.fhirpath.refused` | `the FHIRPath expression does not parse: {detail}` |
 | `fhir.fhirpath.unbound_variable` | `the expression reads %{name}, which the step's variables do not bind; give it a value there, or correct the name` |
 | `fhir.fhirpath.reserved_variable` | `variables binds %{name}, which FHIRPath defines itself; choose another name` |
