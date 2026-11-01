@@ -54,4 +54,5 @@ The tests are offline: every block runs against a fake FHIR server in `tests/fhi
 the response bounds against a hostile server on loopback. `tests/test_fhir_live.py` reads a real
 server with `DIRIGENT_LIVE=1 FHIR_LIVE_URL=http://localhost:8090/fhir`.
 
-The pack follows dirigent's version: 0.29.0 is built against dirigent 0.29.0.
+The pack follows dirigent's version: each release is built against the dirigent release of the
+same number.
