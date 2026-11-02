@@ -187,3 +187,19 @@ def test_resources_or_a_bundle_exactly() -> None:
     for config in configs:
         with pytest.raises(ValueError):
             FhirTransactionOperator.config_model.model_validate({"connection": CONNECTION, **config})
+
+
+@pytest.mark.parametrize(
+    "kind", ["Patient/../../admin/users", "Patient/victim-1", "", "$op", "Patient?x=1", "Patient#"]
+)
+@pytest.mark.parametrize("write", ["update", "create"])
+async def test_a_carried_resource_under_a_type_that_is_no_type_name_sends_nothing(
+    ctx: FakeContext, server: FhirServer, kind: str, write: str
+) -> None:
+    resource = {**PATIENT, "resourceType": kind}
+    bundle = {"resourceType": "Bundle", "type": "searchset", "entry": [{"resource": PATIENT}, {"resource": resource}]}
+    with pytest.raises(BlockFailure) as raised:
+        await _transaction(ctx, bundle=bundle, write=write)
+    assert raised.value.code == "fhir.resource.bad_resource_type"
+    assert raised.value.error_class is ErrorClass.REJECTED
+    assert server.requests == []

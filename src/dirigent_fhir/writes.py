@@ -5,16 +5,13 @@ from typing import Literal
 from pydantic import Field, JsonValue
 
 from dirigent_common import BlockModel
-from dirigent_fhir.client import Written, portable
-from dirigent_fhir.messages import NO_RESOURCE_TYPE
-from dirigent_fhir.r4 import FhirIssue, JsonObject, resource_type
-from dirigent_plugin import BlockFailure, ErrorClass
+from dirigent_fhir.client import Written, portable, writable_type
+from dirigent_fhir.r4 import FhirIssue, JsonObject
 
 
 def outgoing(resource: JsonObject) -> JsonObject:
-    """The resource a write sends: one that names its type, without its source id or version metadata."""
-    if resource_type(resource) is None:
-        raise BlockFailure(NO_RESOURCE_TYPE, error_class=ErrorClass.REJECTED)
+    """The resource a write sends: one that names a FHIR type, without its source id or version metadata."""
+    writable_type(resource)
     return portable(resource)
 
 
