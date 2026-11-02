@@ -431,6 +431,7 @@ stream of run records is selected by code however the English is later reworded 
 | `fhir.response_too_large` | `{where} answered with more than max_response ({limit} bytes) and the rest was not read; raise max_response if the answer is expected` |
 | `fhir.past_deadline` | `{where} took longer than the {seconds} seconds it is allowed` |
 | `fhir.off_origin` | `a request to {target} was refused, because only {origin}, the origin of base_url, is sent requests through this connection` |
+| `fhir.too_many_redirects` | `{where} was redirected more than {limit} times, and the redirects were not followed further` |
 | `fhir.issues_and_more` | `{named} (and {more} more)` |
 | `fhir.connection.bad_token` | `a bearer_token must be visible ASCII with no whitespace, or it cannot be sent as a header value` |
 | `fhir.connection.both_credentials` | `a connection carries a bearer_token or basic credentials, not both` |

@@ -50,6 +50,8 @@ through the connection is checked against that origin before it is sent, so:
 
 - a redirect is followed only on the origin, with the credential, and a redirect anywhere else
   fails the step, `fhir.off_origin`, before the other host is asked anything;
+- a request follows at most five redirects, and fails with `fhir.too_many_redirects` past them.
+  A redirect's own body is never read, so it costs nothing however large it decodes;
 - a search's `Bundle.link[next]` is followed only on the origin. A server that answers with a
   next link elsewhere fails the step rather than leading the connection to it.
 

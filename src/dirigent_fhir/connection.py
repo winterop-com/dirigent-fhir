@@ -30,6 +30,7 @@ from dirigent_fhir.messages import (
     NO_BASIC_USERNAME,
     PAST_DEADLINE,
     RESPONSE_TOO_LARGE,
+    TOO_MANY_REDIRECTS,
 )
 from dirigent_plugin import BlockFailure, ConnectionKind, ConnectionRef, StepContext
 
@@ -129,6 +130,8 @@ def credential(config: FhirConnectionConfig) -> str | None:
 def prepare(client: httpx2.AsyncClient, config: FhirConnectionConfig) -> BoundedClient:
     """Bind a client to the connection: its base, its credential, FHIR JSON, redirects on its origin only, its limits.
 
+    Redirects are followed by the bounded client, hop by hop, never by the client itself.
+
     Whatever credential the client was built with is taken off first, so the only one it sends
     is the connection's, and only to the origin of ``base_url``.
     """
@@ -139,7 +142,7 @@ def prepare(client: httpx2.AsyncClient, config: FhirConnectionConfig) -> Bounded
     if value is not None:
         client.headers[AUTHORIZATION] = value
     client.headers["Accept"] = FHIR_JSON
-    client.follow_redirects = True
+    client.follow_redirects = False
     client.event_hooks = {"request": [stays_on_origin(origin_of(config.base_url))], "response": []}
     return BoundedClient(
         client,
@@ -148,6 +151,7 @@ def prepare(client: httpx2.AsyncClient, config: FhirConnectionConfig) -> Bounded
             request_deadline=config.request_deadline.total_seconds(),
             too_large=RESPONSE_TOO_LARGE,
             past_deadline=PAST_DEADLINE,
+            too_many_redirects=TOO_MANY_REDIRECTS,
         ),
     )
 
