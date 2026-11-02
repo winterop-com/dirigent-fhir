@@ -38,6 +38,11 @@ A connection carries no credential, a `bearer_token`, or both halves of the basi
 validation refuses anything else: both kinds at once, or half a pair. A refusal never repeats
 what the token held.
 
+A server or proxy that quotes the `Authorization` header it was sent never puts the credential
+in a refusal, a health check's detail, a log line or a step's output: the header value, the
+credential after its scheme, and a basic pair decoded are each replaced by `***` wherever the
+answer says them.
+
 ## One origin
 
 The credential goes only to the origin of `base_url`: its scheme, host and port. Every request
@@ -58,7 +63,8 @@ through the connection is checked against that origin before it is sent, so:
 Every response is read as it decodes and refused past `max_response`, so a small compressed
 answer that decodes to gigabytes costs no more than the limit. Every request is cut at
 `request_deadline`, however steadily the server keeps sending. A search holds each page to both
-on its own, and `max_pages` bounds how many pages there are. An error answer is read only far
+on its own, `max_pages` bounds how many pages there are, and the search's own `max_total` bounds
+what they decode to together. An error answer is read only far
 enough to quote it.
 
 ## The health check

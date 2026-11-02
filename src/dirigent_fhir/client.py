@@ -4,25 +4,46 @@ Every call goes through a bounded client held to one origin. A refusal is raised
 failure carrying the server's ``OperationOutcome`` in its own words.
 """
 
+import asyncio
+import base64
+import binascii
+import contextlib
 import json
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from types import TracebackType
 from typing import Any, Final, Self
 
 import httpx2
 from pydantic import JsonValue
 
-from dirigent_fhir.limits import BoundedClient
+from dirigent_common import scrub, scrub_json, spellings
+from dirigent_fhir.limits import BoundedClient, Budget
 from dirigent_fhir.messages import (
     ANSWERED,
+    BAD_RESOURCE_TYPE,
     ISSUES_AND_MORE,
+    NO_RESOURCE_TYPE,
     NOT_A_CAPABILITY_STATEMENT,
     NOT_A_RESOURCE,
     NOT_JSON,
     OFF_ORIGIN,
+    SEARCH_TOO_LARGE,
 )
-from dirigent_fhir.r4 import FhirIssue, JsonObject, as_object, fhir_version, issues_of, next_link, resource_type
+from dirigent_fhir.r4 import (
+    RESOURCE_TYPE,
+    FhirIssue,
+    JsonObject,
+    as_object,
+    fhir_version,
+    issues_of,
+    next_link,
+    resource_type,
+)
 from dirigent_plugin import BlockFailure, ErrorClass
+
+#: The header a credential travels in.
+AUTHORIZATION: Final = "Authorization"
 
 #: The media type every request asks for and every body is sent as.
 FHIR_JSON: Final = "application/fhir+json"
@@ -88,19 +109,51 @@ def said(issues: list[FhirIssue]) -> str:
     return ISSUES_AND_MORE.render(named=named, more=more) if more > 0 else named
 
 
-def _body(response: httpx2.Response) -> object:
-    """The JSON a response carries, or None when it carries none."""
+def credential_spellings(authorization: str | None) -> set[str]:
+    """Every spelling of an ``Authorization`` value a server may quote: whole, its credential, a basic pair decoded."""
+    if not authorization:
+        return set()
+    written = {authorization}
+    scheme, _, credential = authorization.partition(" ")
+    if credential:
+        written.add(credential)
+        if scheme.lower() == "basic":
+            with contextlib.suppress(binascii.Error, UnicodeDecodeError):
+                written.add(base64.b64decode(credential, validate=True).decode())
+    found: set[str] = set()
+    for one in written:
+        found |= spellings(one)
+    return found
+
+
+def sent_credential(response: httpx2.Response) -> set[str]:
+    """The spellings of the credential the request behind a response carried."""
     try:
-        parsed: object = response.json()
+        request = response.request
+    except RuntimeError:
+        return set()
+    return credential_spellings(request.headers.get(AUTHORIZATION))
+
+
+def _body(response: httpx2.Response) -> object:
+    """The JSON a response carries, with the credential its request sent scrubbed, or None when it carries none."""
+    try:
+        parsed: JsonValue = response.json()
     except ValueError:
         return None
-    return parsed
+    secrets = sent_credential(response)
+    return scrub_json(parsed, secrets) if secrets else parsed
+
+
+def _text(response: httpx2.Response) -> str:
+    """The opening of a response's text, with the credential its request sent scrubbed."""
+    return scrub(response.text, sent_credential(response))[:QUOTED]
 
 
 def refusal(response: httpx2.Response, where: str) -> BlockFailure:
     """Turn an error answer into a classified failure, in the words of its OperationOutcome when it has one."""
     issues = issues_of(_body(response))
-    remote = said(issues) if issues else (response.text[:QUOTED] or response.reason_phrase)
+    remote = said(issues) if issues else (_text(response) or response.reason_phrase)
     status = response.status_code
     return BlockFailure(
         ANSWERED,
@@ -110,6 +163,16 @@ def refusal(response: httpx2.Response, where: str) -> BlockFailure:
         remote=remote,
         issues=[issue.model_dump(mode="json") for issue in issues],
     )
+
+
+def writable_type(resource: JsonObject) -> str:
+    """The type a resource is written under, refusing one that is missing or is no FHIR type name."""
+    kind = resource_type(resource)
+    if kind is None:
+        raise BlockFailure(NO_RESOURCE_TYPE, error_class=ErrorClass.REJECTED)
+    if re.fullmatch(RESOURCE_TYPE, kind) is None:
+        raise BlockFailure(BAD_RESOURCE_TYPE, error_class=ErrorClass.REJECTED)
+    return kind
 
 
 def resource_of(response: httpx2.Response, where: str, expected: str | None = None) -> JsonObject:
@@ -213,22 +276,30 @@ class FhirClient:
         path = f"{kind}/{resource_id}"
         return resource_of(await self._call("GET", path), f"GET {path}", kind)
 
-    async def search(self, kind: str, params: list[tuple[str, str]], max_pages: int) -> SearchPages:
-        """Search one type, following ``Bundle.link[next]`` on the origin for at most ``max_pages`` pages."""
-        response = await self._call("GET", kind, params=params)
-        page = resource_of(response, f"GET {kind}", "Bundle")
+    async def search(self, kind: str, params: list[tuple[str, str]], max_pages: int, max_total: int) -> SearchPages:
+        """Search one type, following ``Bundle.link[next]`` on the origin for at most ``max_pages`` pages.
+
+        Every page together decodes to at most ``max_total``, and each is parsed off the event loop.
+        """
+        budget = Budget(remaining=max_total, too_large=SEARCH_TOO_LARGE, limit=max_total)
+        response = await self._call("GET", kind, params=params, budget=budget)
+        page = await asyncio.to_thread(resource_of, response, f"GET {kind}", "Bundle")
         pages = [page]
+        budget = replace(budget, remaining=budget.remaining - len(response.content))
         link = next_link(page)
         while link is not None and len(pages) < max_pages:
             ensure_on_origin(link, self._origin)
-            page = resource_of(await self._call("GET", link), f"GET {kind} (page {len(pages) + 1})", "Bundle")
+            response = await self._call("GET", link, budget=budget)
+            where = f"GET {kind} (page {len(pages) + 1})"
+            page = await asyncio.to_thread(resource_of, response, where, "Bundle")
             pages.append(page)
+            budget = replace(budget, remaining=budget.remaining - len(response.content))
             link = next_link(page)
         return SearchPages(pages=pages, more=link is not None)
 
     async def create(self, resource: JsonObject, if_none_exist: str | None) -> Written:
         """Create a resource, only when nothing matches ``if_none_exist`` when it is given."""
-        kind = str(resource["resourceType"])
+        kind = writable_type(resource)
         headers = dict(RETURN_REPRESENTATION)
         if if_none_exist:
             headers["If-None-Exist"] = if_none_exist
@@ -237,7 +308,7 @@ class FhirClient:
 
     async def update_where(self, resource: JsonObject, search: str) -> Written:
         """Update the one resource a search matches, or create it when none does."""
-        kind = str(resource["resourceType"])
+        kind = writable_type(resource)
         response = await self._call(
             "PUT", f"{kind}?{search}", content=json.dumps(resource), headers=RETURN_REPRESENTATION
         )
@@ -267,6 +338,8 @@ def _written(response: httpx2.Response) -> Written:
     issues = issues_of(found)
     resource = found if found is not None and resource_type(found) not in (None, "OperationOutcome") else None
     location = response.headers.get("Content-Location") or response.headers.get("Location")
+    if location is not None:
+        location = scrub(location, sent_credential(response))
     return Written(status=response.status_code, location=location, resource=resource, issues=issues)
 
 

@@ -58,7 +58,19 @@ SEARCH_MORE_PAGES = FHIR.define(
     "raise max_pages, narrow the search, or set on_more to stop",
 )
 
+SEARCH_TOO_LARGE = FHIR.define(
+    "search.too_large",
+    "{where} took the search's pages past max_total ({limit} bytes) together, and the rest was not read; "
+    "raise max_total, narrow the search, or lower max_pages",
+)
+
 NO_RESOURCE_TYPE = FHIR.define("resource.no_resource_type", "the resource carries no resourceType")
+
+BAD_RESOURCE_TYPE = FHIR.define(
+    "resource.bad_resource_type",
+    "the resource's resourceType is not a FHIR resource type, an upper-case letter and then letters such as "
+    "Patient, so it is not written",
+)
 
 NO_IDENTIFIER = FHIR.define(
     "resource.no_identifier",

@@ -135,3 +135,67 @@ def test_the_limits_are_humane() -> None:
 
 def test_an_empty_token_is_no_token() -> None:
     assert FhirConnectionConfig(base_url=BASE_URL, bearer_token=SecretStr("")).bearer_token is None
+
+
+#: A basic pair, and the bearer token beside it, as the connection sends them.
+BASIC = {"basic_username": "dummyuser", "basic_password": SecretStr("dummy-basic-pw")}
+BASIC_TOKEN = base64.b64encode(b"dummyuser:dummy-basic-pw").decode()
+CREDENTIALS = [
+    pytest.param(BASIC, [f"Basic {BASIC_TOKEN}", BASIC_TOKEN, "dummyuser:dummy-basic-pw"], id="basic"),
+    pytest.param({"bearer_token": SecretStr(TOKEN)}, [f"Bearer {TOKEN}", TOKEN], id="bearer"),
+]
+
+
+def _quoting(as_outcome: bool, status: int = 401) -> Any:
+    """A server that quotes the Authorization header it was sent, in an outcome or as plain text."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        said = f"refused Authorization: {request.headers.get('Authorization')}"
+        if as_outcome:
+            return outcome(status, "login", said)
+        return httpx2.Response(status, text=said, headers={"Location": said})
+
+    return answer
+
+
+@pytest.mark.parametrize(("credential", "spelled"), CREDENTIALS)
+@pytest.mark.parametrize("as_outcome", [True, False], ids=["outcome", "text"])
+async def test_a_server_quoting_the_credential_never_puts_it_in_the_health_detail(
+    server: FhirServer, credential: dict[str, Any], spelled: list[str], as_outcome: bool
+) -> None:
+    server.script(_quoting(as_outcome))
+    config = FhirConnectionConfig(base_url=BASE_URL, **credential)
+    report = await FhirConnectionKind(httpx2.MockTransport(server)).check(config)
+    assert report.healthy is False
+    assert report.detail is not None and "refused Authorization: ***" in report.detail
+    for one in spelled:
+        assert one not in report.detail
+
+
+@pytest.mark.parametrize(("credential", "spelled"), CREDENTIALS)
+@pytest.mark.parametrize("as_outcome", [True, False], ids=["outcome", "text"])
+async def test_a_server_quoting_the_credential_never_puts_it_in_a_refusal(
+    ctx: FakeContext, server: FhirServer, credential: dict[str, Any], spelled: list[str], as_outcome: bool
+) -> None:
+    ctx.connections[CONNECTION] = FhirConnectionConfig(base_url=BASE_URL, **credential)
+    server.script(_quoting(as_outcome))
+    with pytest.raises(BlockFailure) as refused:
+        await call_block(FhirReadOperator(), {"connection": CONNECTION, "resource_type": "Patient", "id": "1"}, ctx)
+    text = f"{refused.value.message} {refused.value.params}"
+    assert "refused Authorization: ***" in text
+    for one in spelled:
+        assert one not in text
+
+
+@pytest.mark.parametrize(("credential", "spelled"), CREDENTIALS)
+async def test_a_server_quoting_the_credential_never_puts_it_in_an_output(
+    ctx: FakeContext, server: FhirServer, credential: dict[str, Any], spelled: list[str]
+) -> None:
+    ctx.connections[CONNECTION] = FhirConnectionConfig(base_url=BASE_URL, **credential)
+    server.script(
+        lambda request: httpx2.Response(
+            200, json={"resourceType": "Patient", "id": "1", "text": {"div": request.headers["Authorization"]}}
+        )
+    )
+    out = await call_block(FhirReadOperator(), {"connection": CONNECTION, "resource_type": "Patient", "id": "1"}, ctx)
+    assert out.model_dump()["resource"]["text"] == {"div": "***"}

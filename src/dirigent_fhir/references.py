@@ -13,15 +13,14 @@ from typing import Final, Literal, cast
 
 from pydantic import JsonValue
 
-from dirigent_fhir.client import first_identifier, identifier_search, portable
+from dirigent_fhir.client import first_identifier, identifier_search, portable, writable_type
 from dirigent_fhir.messages import (
     IDENTIFIER_SYSTEM,
     NO_IDENTIFIER,
-    NO_RESOURCE_TYPE,
     TRANSACTION_DUPLICATE,
     TRANSACTION_UNRESOLVED,
 )
-from dirigent_fhir.r4 import JsonObject, as_object, resource_type
+from dirigent_fhir.r4 import JsonObject, as_object
 from dirigent_plugin import BlockFailure, ErrorClass
 
 #: A relative literal reference: a type and an id, with an optional version after it.
@@ -43,11 +42,8 @@ class Carried:
 
     @property
     def kind(self) -> str:
-        """The resource's type."""
-        kind = resource_type(self.resource)
-        if kind is None:
-            raise BlockFailure(NO_RESOURCE_TYPE, error_class=ErrorClass.REJECTED)
-        return kind
+        """The resource's type, refused when it is missing or is no FHIR type name."""
+        return writable_type(self.resource)
 
     @property
     def source(self) -> str | None:
