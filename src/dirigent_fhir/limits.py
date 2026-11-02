@@ -33,6 +33,20 @@ class Limits:
     """The refusal for a request past its deadline, naming ``where`` and ``seconds``."""
 
 
+@dataclass(frozen=True)
+class Budget:
+    """What is left of a bound shared by several requests, and the refusal for passing it."""
+
+    remaining: int
+    """The most the next response may decode to, in bytes."""
+
+    too_large: Message
+    """The refusal for an answer past ``remaining``, naming ``where`` and ``limit``."""
+
+    limit: int
+    """The whole bound, which the refusal names."""
+
+
 class BoundedClient:
     """A connection's client, through which every request is held to the connection's limits."""
 
@@ -85,24 +99,24 @@ class BoundedClient:
                 self._limits.past_deadline, error_class=ErrorClass.TRANSIENT, where=f"{method} {path}", seconds=seconds
             ) from error
 
-    async def request(self, method: str, path: str, **kwargs: Any) -> httpx2.Response:
+    async def request(self, method: str, path: str, *, budget: Budget | None = None, **kwargs: Any) -> httpx2.Response:
         """Make one request and read its answer whole.
 
-        An answer past ``max_response`` is refused. An error answer is cut short instead, so it
-        is still classified by its status.
+        An answer past ``max_response`` is refused, or past what is left of ``budget`` when that
+        is less. An error answer is cut short instead, so it is still classified by its status.
         """
+        most, too_large, limit = self._limits.max_response, self._limits.too_large, self._limits.max_response
+        if budget is not None and budget.remaining < most:
+            most, too_large, limit = budget.remaining, budget.too_large, budget.limit
         async with self.stream(method, path, **kwargs) as response:
             if response.is_error:
                 return await read_error(response)
             body = bytearray()
             async with contextlib.aclosing(pieces(response)) as decoded:
                 async for piece in decoded:
-                    if len(body) + len(piece) > self._limits.max_response:
+                    if len(body) + len(piece) > most:
                         raise BlockFailure(
-                            self._limits.too_large,
-                            error_class=ErrorClass.REJECTED,
-                            where=f"{method} {path}",
-                            limit=self._limits.max_response,
+                            too_large, error_class=ErrorClass.REJECTED, where=f"{method} {path}", limit=limit
                         )
                     body.extend(piece)
             return _read_response(response, bytes(body))

@@ -1,10 +1,12 @@
 """``fhir.search``: pages followed by next link under a cap, and never off the connection's origin."""
 
+import threading
 from typing import Any, cast
 
 import httpx2
 import pytest
 
+from dirigent_fhir import client, r4, search
 from dirigent_fhir.search import FhirSearchOperator, FhirSearchOutput
 from dirigent_plugin import BlockFailure, ErrorClass
 from dirigent_testing import FakeContext, call_block
@@ -146,3 +148,55 @@ async def test_an_empty_search_hands_on_an_empty_list_which_skips_the_fan_out(
         assert isinstance(out, FhirSearchOutput)
         assert (out.bundles if emit == "pages" else out.resources) == []
         assert (out.count, out.pages) == (0, 1)
+
+
+def _large_patients(server: FhirServer, count: int, size: int) -> None:
+    for number in range(count):
+        server.seed(
+            {
+                "resourceType": "Patient",
+                "identifier": [{"system": MRN, "value": f"p{number}"}],
+                "text": {"status": "generated", "div": "x" * size},
+            }
+        )
+
+
+async def test_pages_each_in_limit_are_refused_past_max_total_together(ctx: FakeContext, server: FhirServer) -> None:
+    _large_patients(server, 6, 300_000)
+    with pytest.raises(BlockFailure) as raised:
+        await call_block(FhirSearchOperator(), _config(params={"_count": "1"}, max_total="1MB"), ctx)
+    assert raised.value.code == "fhir.search.too_large"
+    assert raised.value.error_class is ErrorClass.REJECTED
+    assert raised.value.params["limit"] == 1024 * 1024
+    assert len(server.requests) == 4
+
+
+async def test_pages_within_max_total_together_are_read(ctx: FakeContext, server: FhirServer) -> None:
+    _large_patients(server, 6, 300_000)
+    out = await call_block(FhirSearchOperator(), _config(params={"_count": "1"}, max_total="2MB"), ctx)
+    assert isinstance(out, FhirSearchOutput)
+    assert (out.count, out.pages, out.complete) == (6, 6, True)
+
+
+@pytest.mark.parametrize("emit", ["bundle", "pages", "resources"])
+async def test_every_page_is_parsed_and_folded_off_the_event_loop(
+    ctx: FakeContext, server: FhirServer, monkeypatch: pytest.MonkeyPatch, emit: str
+) -> None:
+    loop_thread = threading.get_ident()
+    threads: list[tuple[str, int]] = []
+    parse, fold = client.resource_of, r4.searchset
+
+    def parsing(*args: Any) -> Any:
+        threads.append(("parse", threading.get_ident()))
+        return parse(*args)
+
+    def folding(*args: Any) -> Any:
+        threads.append(("fold", threading.get_ident()))
+        return fold(*args)
+
+    monkeypatch.setattr(client, "resource_of", parsing)
+    monkeypatch.setattr(search, "searchset", folding)
+    _patients(server, 5)
+    await call_block(FhirSearchOperator(), _config(emit=emit), ctx)
+    assert {name for name, _ in threads} == {"parse", "fold"}
+    assert [name for name, thread in threads if thread == loop_thread] == []

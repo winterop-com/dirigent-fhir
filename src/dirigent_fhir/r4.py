@@ -5,7 +5,6 @@ elements they do not model, so an answer is projected onto the fields a model na
 is validated, and a document the projection still does not fit is read as plain JSON instead.
 """
 
-import json
 import types
 from typing import Any, Final, Union, cast, get_args, get_origin
 
@@ -214,5 +213,7 @@ def searchset(pages: list[JsonObject]) -> tuple[JsonObject, list[FhirIssue]]:
                 )
             )
     bundle = Bundle(type="searchset", total=total, entry=entries or None)
-    folded = as_object(json.loads(bundle.model_dump_json(exclude_none=True, by_alias=True)))
-    return folded or {}, issues
+    folded: JsonObject = bundle.model_dump(mode="json", exclude={"entry"}, exclude_none=True, by_alias=True)
+    if bundle.entry:
+        folded["entry"] = [entry.model_dump(mode="json", exclude_none=True, by_alias=True) for entry in bundle.entry]
+    return folded, issues
