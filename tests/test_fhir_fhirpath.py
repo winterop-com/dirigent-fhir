@@ -124,6 +124,65 @@ async def test_filter_refuses_an_answer_that_is_not_one_boolean(ctx: FakeContext
     assert "a filter answers true, false or nothing" in str(raised.value)
 
 
+CITIES: list[dict[str, Any]] = [
+    {"name": "oslo", "first-name": "Christiania", "pop": 700000, "active": True, "founded": "1048-01-01"},
+    {"name": "bergen", "pop": 290000, "active": False, "founded": "1070-01-01"},
+    {"name": "tromso", "active": True, "founded": "1794-01-01"},
+]
+
+
+async def test_filter_reads_json_that_is_not_fhir(ctx: FakeContext) -> None:
+    config = {"input": CITIES, "program": "pop > %limit", "variables": {"limit": 500000}}
+    output = await call_block(FhirPathFilterer(), config, ctx)
+    assert _value(output) == [CITIES[0]]
+
+
+async def test_filter_reads_a_list_of_numbers_through_this(ctx: FakeContext) -> None:
+    output = await call_block(FhirPathFilterer(), {"input": [1, 5, 9], "program": "$this > 3"}, ctx)
+    assert _value(output) == [5, 9]
+
+
+async def test_a_misspelt_field_drops_every_element_and_the_step_succeeds(ctx: FakeContext) -> None:
+    output = await call_block(FhirPathFilterer(), {"input": CITIES, "program": "popp > 1"}, ctx)
+    assert _value(output) == []
+
+
+async def test_map_answers_null_for_a_field_an_element_lacks(ctx: FakeContext) -> None:
+    output = await call_block(FhirPathMapper(), {"input": CITIES, "program": "pop"}, ctx)
+    assert _value(output) == [700000, 290000, None]
+
+
+@pytest.mark.parametrize(
+    ("program", "answer"),
+    [
+        ("`first-name`", "Christiania"),
+        ("founded > @1000-01-01", True),
+        ("name.upper()", "OSLO"),
+        ("Patient.name", None),
+    ],
+    ids=["backticks", "date-literal", "string-function", "type-name"],
+)
+async def test_an_object_that_is_not_fhir_is_walked_like_a_resource(
+    program: str, answer: Any, ctx: FakeContext
+) -> None:
+    output = await call_block(FhirPathTransformer(), {"input": CITIES[0], "program": program}, ctx)
+    assert _value(output) == answer
+
+
+@pytest.mark.parametrize(
+    ("program", "answer"),
+    [
+        ("name", ["oslo", "bergen", "tromso"]),
+        ("where(active).name", ["oslo", "tromso"]),
+        ("$this.name", None),
+    ],
+    ids=["bare-path", "where", "this"],
+)
+async def test_a_list_given_to_transform_is_a_collection(program: str, answer: Any, ctx: FakeContext) -> None:
+    output = await call_block(FhirPathTransformer(), {"input": CITIES, "program": program}, ctx)
+    assert _value(output) == answer
+
+
 @pytest.mark.parametrize(
     ("program", "variables", "said"),
     [
@@ -131,8 +190,9 @@ async def test_filter_refuses_an_answer_that_is_not_one_boolean(ctx: FakeContext
         ("name.where(family = %family)", {}, "reads %family, which the step's variables do not bind"),
         ("name.where(family = %`family`)", {"other": 1}, "reads %family"),
         ("%resource.id", {"resource": "x"}, "variables binds %resource, which FHIRPath defines itself"),
+        ('"first-name"', {}, "the FHIRPath expression does not parse"),
     ],
-    ids=["unparsed", "unbound", "unbound-delimited", "reserved"],
+    ids=["unparsed", "unbound", "unbound-delimited", "reserved", "double-quoted-key"],
 )
 async def test_a_bad_expression_is_refused_at_apply_and_at_run(
     ctx: FakeContext, program: str, variables: dict[str, Any], said: str

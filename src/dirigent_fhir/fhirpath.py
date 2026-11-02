@@ -1,6 +1,6 @@
 """The ``fhirpath`` engines: a FHIRPath expression as the transform, map and filter verbs' program.
 
-An expression is evaluated by the engine's FHIRPath evaluator in a runner process of its own,
+The input is any JSON value: nothing here requires a ``resourceType``. An expression is evaluated by the engine's FHIRPath evaluator in a runner process of its own,
 over dirigent's runner protocol, so a step's timeout ends a long evaluation by killing that
 process. A value reaches an expression only as a variable: the step's ``variables`` are bound
 as FHIRPath environment variables, read as ``%name``, and a ``${...}`` in the expression is
@@ -139,7 +139,7 @@ def _one_value(produced: list[JsonValue]) -> JsonValue:
 
 
 class FhirPathTransformer(FhirPathEngine, Transformer):
-    """Evaluates a FHIRPath expression over one whole value, such as a resource or a Bundle.
+    """Evaluates a FHIRPath expression over one whole value, any JSON such as a resource or a Bundle.
 
     A FHIRPath answer is a collection. An empty one is the step's `null`, one item is the value
     itself, and several are their list, so `name.family.first()` answers a string and
@@ -160,7 +160,7 @@ class FhirPathTransformer(FhirPathEngine, Transformer):
 class FhirPathMapper(FhirPathEngine, Mapper):
     """Replaces every element of a list with what a FHIRPath expression evaluates to over it.
 
-    Each element is evaluated on its own, as `%resource`, and replaced the way `transform.fhirpath`
+    Each element, any JSON, is evaluated on its own, as `%resource`, and replaced the way `transform.fhirpath`
     reads a collection: nothing is `null`, one item is itself, and several are their list. The
     list keeps its length, which is the map frame's promise.
     """
@@ -178,7 +178,7 @@ class FhirPathMapper(FhirPathEngine, Mapper):
 class FhirPathFilterer(FhirPathEngine, Filterer):
     """Keeps the elements of a list a FHIRPath expression answers true for.
 
-    Each element is evaluated on its own, as `%resource`, the way FHIRPath's own `where()` reads
+    Each element, any JSON, is evaluated on its own, as `%resource`, the way FHIRPath's own `where()` reads
     its criteria: an empty answer keeps nothing, `true` keeps the element, `false` drops it, and
     anything else, a string or several items, is a refusal rather than a truthiness the step
     would have to guess at.

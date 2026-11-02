@@ -1,0 +1,72 @@
+# Filter, map and reshape JSON that is not FHIR, with FHIRPath.
+#
+# The three FHIRPath verbs read any JSON value: no resourceType, no connection, no server. The
+# records here are written inline, and an API's answer or a file read through storage.read
+# works the same way.
+#
+# HOP BY HOP:
+#
+#   big     filter.fhirpath: keeps a city over the limit, a parameter read as the variable
+#           %limit. tromso has no pop, so its answer is empty and it is dropped, not refused.
+#   names   map.fhirpath: each kept city replaced by its name in capitals, and `first-name`
+#           shows the backticks a key that is not a plain identifier needs.
+#   north   transform.fhirpath over one object: walks into its list, and compares a string
+#           against a date literal.
+#
+# No setup: this document needs the pack installed and nothing running.
+#
+#   dg run --local examples/fhir/fhir-fhirpath-plain-json.yaml -p limit=500000
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-fhirpath-plain-json
+name: Plain JSON, with FHIRPath
+description: |
+  Filter, map and reshape records that are not FHIR, with FHIRPath.
+
+  Needs no server: filter.fhirpath keeps the big cities, map.fhirpath reads each name, and
+  transform.fhirpath walks into one object.
+
+tags: [fhirpath, transform, starter]
+
+requires:
+  blocks:
+    - filter.fhirpath
+    - map.fhirpath
+    - transform.fhirpath
+
+params:
+  type: object
+  properties:
+    limit:
+      type: integer
+      default: 500000
+      description: The population a city has to be over to be kept.
+
+steps:
+  big:
+    block: filter.fhirpath
+    config:
+      input:
+        - {name: oslo, first-name: Christiania, pop: 700000}
+        - {name: bergen, first-name: Bjorgvin, pop: 290000}
+        - {name: tromso, first-name: Tromso}
+      program: pop > %limit
+      variables:
+        limit: ${params.limit}
+
+  names:
+    block: map.fhirpath
+    depends_on: [big]
+    config:
+      input: ${steps.big.output.value}
+      program: name.upper() + ' was ' + `first-name`
+
+  north:
+    block: transform.fhirpath
+    config:
+      input:
+        cities:
+          - {name: oslo, lat: 59.9, founded: "1048-01-01"}
+          - {name: tromso, lat: 69.6, founded: "1794-01-01"}
+      program: cities.where(lat > 66 and founded > @1500-01-01).name

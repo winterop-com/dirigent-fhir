@@ -6,7 +6,9 @@ The pack contributes one connection kind and five blocks that speak FHIR R4's RE
 first-class steps: a read, a search that follows the server's pages, a conditional create, a
 conditional update, and a transaction that carries many resources with the references between
 them rewritten. A pipeline that names `fhir.transaction` says what it wants written; it does not
-assemble the Bundle, invent `urn:uuid`s, or parse the `OperationOutcome` itself.
+assemble the Bundle, invent `urn:uuid`s, or parse the `OperationOutcome` itself. Beside them it
+validates resources, evaluates CQL and scores measures, and puts FHIRPath on dirigent's transform
+verbs, where it reads any JSON and not only FHIR.
 
 It is FHIR as a system of its own, not a DHIS2 pack: a pipeline that reads from one FHIR server
 and writes to another, neither of them DHIS2, is as much its purpose as feeding DHIS2. Between
@@ -17,8 +19,10 @@ on it unchanged.
 
 - The [`fhir` connection kind](connection.md): one server's base, its credential, the limits one
   answer is held to, and a health check that reads `/metadata`.
-- Five [blocks](blocks.md), all operators in the `fhir` group: two that read and three that write,
-  every write conditional on FHIR's own means.
+- The [blocks](blocks.md): two that read and three that write, every write conditional on FHIR's
+  own means; `fhir.validate`, `fhir.cql` and `fhir.measure`, which compute on what they are given;
+  and `transform.fhirpath`, `map.fhirpath` and `filter.fhirpath`, which
+  [work on any JSON](blocks.md#on-json-that-is-not-fhir).
 - One [example](examples.md) document per operation, and a FHIR to FHIR copy on a schedule.
 
 ## What it is built on
