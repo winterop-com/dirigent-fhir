@@ -35,8 +35,7 @@ from dirigent_fhir.messages import (
     VALIDATE_RESOURCE_ID,
     VALIDATE_UNRESOLVABLE_REFERENCE,
 )
-from dirigent_fhir.r4 import FhirIssue, JsonObject, as_object, project, resource_type
-from dirigent_fhir.read import RESOURCE_ID, RESOURCE_TYPE
+from dirigent_fhir.r4 import RESOURCE_ID, RESOURCE_TYPE, FhirIssue, JsonObject, as_object, project, resource_type
 from dirigent_plugin import BlockFailure, ErrorClass, Operator, OperatorSpec, StepContext
 
 #: A reference a server can resolve: relative, versioned, conditional, absolute, a urn, or contained.

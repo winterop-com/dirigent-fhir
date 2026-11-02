@@ -8,6 +8,7 @@ import base64
 import binascii
 import contextlib
 import json
+import re
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Final, Self
@@ -19,13 +20,24 @@ from dirigent_common import scrub, scrub_json, spellings
 from dirigent_fhir.limits import BoundedClient
 from dirigent_fhir.messages import (
     ANSWERED,
+    BAD_RESOURCE_TYPE,
     ISSUES_AND_MORE,
+    NO_RESOURCE_TYPE,
     NOT_A_CAPABILITY_STATEMENT,
     NOT_A_RESOURCE,
     NOT_JSON,
     OFF_ORIGIN,
 )
-from dirigent_fhir.r4 import FhirIssue, JsonObject, as_object, fhir_version, issues_of, next_link, resource_type
+from dirigent_fhir.r4 import (
+    RESOURCE_TYPE,
+    FhirIssue,
+    JsonObject,
+    as_object,
+    fhir_version,
+    issues_of,
+    next_link,
+    resource_type,
+)
 from dirigent_plugin import BlockFailure, ErrorClass
 
 #: The header a credential travels in.
@@ -151,6 +163,16 @@ def refusal(response: httpx2.Response, where: str) -> BlockFailure:
     )
 
 
+def writable_type(resource: JsonObject) -> str:
+    """The type a resource is written under, refusing one that is missing or is no FHIR type name."""
+    kind = resource_type(resource)
+    if kind is None:
+        raise BlockFailure(NO_RESOURCE_TYPE, error_class=ErrorClass.REJECTED)
+    if re.fullmatch(RESOURCE_TYPE, kind) is None:
+        raise BlockFailure(BAD_RESOURCE_TYPE, error_class=ErrorClass.REJECTED)
+    return kind
+
+
 def resource_of(response: httpx2.Response, where: str, expected: str | None = None) -> JsonObject:
     """Read an answer as a FHIR resource, of the expected type when one is named."""
     body = _body(response)
@@ -267,7 +289,7 @@ class FhirClient:
 
     async def create(self, resource: JsonObject, if_none_exist: str | None) -> Written:
         """Create a resource, only when nothing matches ``if_none_exist`` when it is given."""
-        kind = str(resource["resourceType"])
+        kind = writable_type(resource)
         headers = dict(RETURN_REPRESENTATION)
         if if_none_exist:
             headers["If-None-Exist"] = if_none_exist
@@ -276,7 +298,7 @@ class FhirClient:
 
     async def update_where(self, resource: JsonObject, search: str) -> Written:
         """Update the one resource a search matches, or create it when none does."""
-        kind = str(resource["resourceType"])
+        kind = writable_type(resource)
         response = await self._call(
             "PUT", f"{kind}?{search}", content=json.dumps(resource), headers=RETURN_REPRESENTATION
         )
