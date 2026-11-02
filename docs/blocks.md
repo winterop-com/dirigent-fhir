@@ -66,7 +66,7 @@ Search FHIR resources, following next links.
 
 Idempotent. Reads.
 
-Searches `GET [base]/{resource_type}` and follows `Bundle.link[next]` for at most `max_pages` pages, folding every page into one `searchset` Bundle built through the engine's R4 `Bundle` model. A next link is followed only on the origin of the connection's `base_url`: a link to any other scheme, host or port fails the step before anything is sent there. An entry the server marks as an `outcome` is answered under `issues` rather than inside the Bundle. Every page is held to the connection's `max_response` and `request_deadline` on its own.
+Searches `GET [base]/{resource_type}` and follows `Bundle.link[next]` for at most `max_pages` pages, folding every page into one `searchset` Bundle built through the engine's R4 `Bundle` model. A next link is followed only on the origin of the connection's `base_url`: a link to any other scheme, host or port fails the step before anything is sent there. An entry the server marks as an `outcome` is answered under `issues` rather than inside the Bundle. Every page is held to the connection's `max_response` and `request_deadline` on its own, and every page read together to `max_total`: the search fails, rejected, with `fhir.search.too_large` and reads no further once its pages pass it. Each page is parsed, and the pages folded, off the event loop.
 
 `emit` decides what the step hands on. The default folds every page into one Bundle. `pages` and `resources` hand on a list instead, which is what a following step's `for_each` maps over: `for_each: ${steps.find.output.bundles}` gives each page its own item, with its own status and retry, and `${item}` is that page's Bundle. A page that holds no result is left out, so an empty search hands on an empty list, and an empty list skips the fan-out. The grid is written when the search has succeeded, and it is held to the instance's `fan_out_max_items`.
 
@@ -78,6 +78,7 @@ Searches `GET [base]/{resource_type}` and follows `Bundle.link[next]` for at mos
 | `resource_type` | `string` | yes |  | The resource type searched, such as `Patient`. |
 | `params` | `object of string or string[]` |  |  | The search parameters as FHIR spells them, such as `{identifier: "http://example.org/mrn\|", _count: "50"}`; a list sends the parameter once per value, which FHIR reads as AND. |
 | `max_pages` | `integer` |  | `10` | The most pages followed, the first included. |
+| `max_total` | `size` |  | `"64MB"` | The most every page read may decode to together; a search past it fails, and the rest is not read. |
 | `on_more` | `"fail" or "stop"` |  | `"fail"` | What a next link past `max_pages` does: `fail` fails the step, `stop` answers with the pages read and `complete` false. |
 | `emit` | `"bundle" or "pages" or "resources"` |  | `"bundle"` | What the step hands on: `bundle` folds every page into one Bundle under `bundle`, `pages` lists each page as its own searchset Bundle under `bundles`, and `resources` lists every resource under `resources`, so a following step's `for_each` maps over either list. |
 
@@ -439,6 +440,7 @@ stream of run records is selected by code however the English is later reworded 
 | `fhir.connection.unreachable` | `the FHIR server did not answer: {detail}` |
 | `fhir.connection.not_a_capability_statement` | `{where} answered with {found} rather than a CapabilityStatement, so this is not a FHIR server's base` |
 | `fhir.search.more_pages` | `the search has more than max_pages ({max_pages}) pages, and on_more is fail; raise max_pages, narrow the search, or set on_more to stop` |
+| `fhir.search.too_large` | `{where} took the search's pages past max_total ({limit} bytes) together, and the rest was not read; raise max_total, narrow the search, or lower max_pages` |
 | `fhir.resource.no_resource_type` | `the resource carries no resourceType` |
 | `fhir.resource.no_identifier` | `the {resource} carries no identifier with both a system and a value{system}, so there is nothing to match it on; the source server's id is never used` |
 | `fhir.resource.identifier_system` | ` under the system {system}` |

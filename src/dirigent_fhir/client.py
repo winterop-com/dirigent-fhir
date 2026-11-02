@@ -4,15 +4,16 @@ Every call goes through a bounded client held to one origin. A refusal is raised
 failure carrying the server's ``OperationOutcome`` in its own words.
 """
 
+import asyncio
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import TracebackType
 from typing import Any, Final, Self
 
 import httpx2
 from pydantic import JsonValue
 
-from dirigent_fhir.limits import BoundedClient
+from dirigent_fhir.limits import BoundedClient, Budget
 from dirigent_fhir.messages import (
     ANSWERED,
     ISSUES_AND_MORE,
@@ -20,6 +21,7 @@ from dirigent_fhir.messages import (
     NOT_A_RESOURCE,
     NOT_JSON,
     OFF_ORIGIN,
+    SEARCH_TOO_LARGE,
 )
 from dirigent_fhir.r4 import FhirIssue, JsonObject, as_object, fhir_version, issues_of, next_link, resource_type
 from dirigent_plugin import BlockFailure, ErrorClass
@@ -213,16 +215,24 @@ class FhirClient:
         path = f"{kind}/{resource_id}"
         return resource_of(await self._call("GET", path), f"GET {path}", kind)
 
-    async def search(self, kind: str, params: list[tuple[str, str]], max_pages: int) -> SearchPages:
-        """Search one type, following ``Bundle.link[next]`` on the origin for at most ``max_pages`` pages."""
-        response = await self._call("GET", kind, params=params)
-        page = resource_of(response, f"GET {kind}", "Bundle")
+    async def search(self, kind: str, params: list[tuple[str, str]], max_pages: int, max_total: int) -> SearchPages:
+        """Search one type, following ``Bundle.link[next]`` on the origin for at most ``max_pages`` pages.
+
+        Every page together decodes to at most ``max_total``, and each is parsed off the event loop.
+        """
+        budget = Budget(remaining=max_total, too_large=SEARCH_TOO_LARGE, limit=max_total)
+        response = await self._call("GET", kind, params=params, budget=budget)
+        page = await asyncio.to_thread(resource_of, response, f"GET {kind}", "Bundle")
         pages = [page]
+        budget = replace(budget, remaining=budget.remaining - len(response.content))
         link = next_link(page)
         while link is not None and len(pages) < max_pages:
             ensure_on_origin(link, self._origin)
-            page = resource_of(await self._call("GET", link), f"GET {kind} (page {len(pages) + 1})", "Bundle")
+            response = await self._call("GET", link, budget=budget)
+            where = f"GET {kind} (page {len(pages) + 1})"
+            page = await asyncio.to_thread(resource_of, response, where, "Bundle")
             pages.append(page)
+            budget = replace(budget, remaining=budget.remaining - len(response.content))
             link = next_link(page)
         return SearchPages(pages=pages, more=link is not None)
 

@@ -56,7 +56,8 @@ through the connection is checked against that origin before it is sent, so:
 Every response is read as it decodes and refused past `max_response`, so a small compressed
 answer that decodes to gigabytes costs no more than the limit. Every request is cut at
 `request_deadline`, however steadily the server keeps sending. A search holds each page to both
-on its own, and `max_pages` bounds how many pages there are. An error answer is read only far
+on its own, `max_pages` bounds how many pages there are, and the search's own `max_total` bounds
+what they decode to together. An error answer is read only far
 enough to quote it.
 
 ## The health check

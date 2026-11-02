@@ -1,10 +1,12 @@
 """``fhir.search``: search one resource type, following the server's next links under a page cap."""
 
+import asyncio
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field, JsonValue
 
-from dirigent_common import BlockModel
+from dirigent_common import BlockModel, Size
+from dirigent_fhir.client import SearchPages
 from dirigent_fhir.connection import client_for
 from dirigent_fhir.messages import SEARCH_MORE_PAGES
 from dirigent_fhir.r4 import FhirIssue, JsonObject, as_object, searchset
@@ -27,6 +29,9 @@ class FhirSearchConfig(BlockModel):
 
     max_pages: int = Field(default=10, ge=1, le=10_000)
     """The most pages followed, the first included."""
+
+    max_total: Size = Field(default=64 * 1024 * 1024, ge=1)
+    """The most every page read may decode to together; a search past it fails, and the rest is not read."""
 
     on_more: Literal["fail", "stop"] = "fail"
     """What a next link past `max_pages` does: `fail` fails the step, `stop` answers with the pages read and
@@ -86,29 +91,35 @@ class FhirSearchOperator(Operator[FhirSearchConfig, FhirSearchOutput]):
     async def execute(self, config: FhirSearchConfig, ctx: StepContext) -> FhirSearchOutput:
         """Read the pages, then fold them into one searchset Bundle."""
         async with client_for(ctx, config.connection) as fhir:
-            result = await fhir.search(config.resource_type, _params(config.params), config.max_pages)
+            result = await fhir.search(config.resource_type, _params(config.params), config.max_pages, config.max_total)
         if result.more and config.on_more == "fail":
             raise BlockFailure(SEARCH_MORE_PAGES, error_class=ErrorClass.REJECTED, max_pages=config.max_pages)
-        bundle, issues = searchset(result.pages)
-        for issue in issues:
+        output = await asyncio.to_thread(_fold, result, config.emit)
+        for issue in output.issues:
             ctx.log.warning("the server said something about the search", issue=issue.describe())
-        entries = _entries(bundle)
-        total = bundle.get("total")
-        output = FhirSearchOutput(
-            count=len(entries),
-            total=total if isinstance(total, int) else None,
-            pages=len(result.pages),
-            complete=not result.more,
-            issues=issues,
-        )
-        if config.emit == "pages":
-            folded = (searchset([page])[0] for page in result.pages)
-            output.bundles = [page for page in folded if _entries(page)]
-        elif config.emit == "resources":
-            output.resources = [resource for entry in entries if (resource := as_object(entry.get("resource")))]
-        else:
-            output.bundle = bundle
         return output
+
+
+def _fold(result: SearchPages, emit: Literal["bundle", "pages", "resources"]) -> FhirSearchOutput:
+    """Fold a search's pages into the step's output."""
+    bundle, issues = searchset(result.pages)
+    entries = _entries(bundle)
+    total = bundle.get("total")
+    output = FhirSearchOutput(
+        count=len(entries),
+        total=total if isinstance(total, int) else None,
+        pages=len(result.pages),
+        complete=not result.more,
+        issues=issues,
+    )
+    if emit == "pages":
+        folded = (searchset([page])[0] for page in result.pages)
+        output.bundles = [page for page in folded if _entries(page)]
+    elif emit == "resources":
+        output.resources = [resource for entry in entries if (resource := as_object(entry.get("resource")))]
+    else:
+        output.bundle = bundle
+    return output
 
 
 def _entries(bundle: JsonObject) -> list[JsonObject]:
