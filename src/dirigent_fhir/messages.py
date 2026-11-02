@@ -56,6 +56,12 @@ SEARCH_MORE_PAGES = FHIR.define(
 
 NO_RESOURCE_TYPE = FHIR.define("resource.no_resource_type", "the resource carries no resourceType")
 
+BAD_RESOURCE_TYPE = FHIR.define(
+    "resource.bad_resource_type",
+    "the resource's resourceType is not a FHIR resource type, an upper-case letter and then letters such as "
+    "Patient, so it is not written",
+)
+
 NO_IDENTIFIER = FHIR.define(
     "resource.no_identifier",
     "the {resource} carries no identifier with both a system and a value{system}, so there is nothing to "

@@ -121,3 +121,26 @@ async def test_an_update_without_a_matching_identifier_is_refused(
         await _update(ctx, resource, identifier_system=system)
     assert raised.value.code == "fhir.resource.no_identifier"
     assert server.requests == []
+
+
+#: resourceType values that are no FHIR type name, each of which would move the write's path.
+NOT_A_TYPE = ["Patient/../../admin/users", "Patient/victim-1", "", "$op", "Patient?x=1", "Patient#", "patient"]
+
+
+@pytest.mark.parametrize("kind", NOT_A_TYPE)
+@pytest.mark.parametrize("block", [FhirCreateOperator, FhirUpdateOperator])
+async def test_a_write_under_a_type_that_is_no_type_name_sends_nothing(
+    ctx: FakeContext, server: FhirServer, block: type[FhirCreateOperator | FhirUpdateOperator], kind: str
+) -> None:
+    resource = {**SOURCE, "resourceType": kind}
+    with pytest.raises(BlockFailure) as raised:
+        await call_block(block(), {"connection": CONNECTION, "resource": resource}, ctx)
+    assert raised.value.code == "fhir.resource.bad_resource_type"
+    assert raised.value.error_class is ErrorClass.REJECTED
+    assert server.requests == []
+
+
+@pytest.mark.parametrize("kind", ["Patient", "Observation"])
+async def test_a_write_under_a_type_name_is_sent_to_its_type(ctx: FakeContext, server: FhirServer, kind: str) -> None:
+    await _update(ctx, {**SOURCE, "resourceType": kind})
+    assert server.requests[0].url.path == f"/fhir/{kind}"

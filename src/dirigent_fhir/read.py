@@ -1,18 +1,13 @@
 """``fhir.read``: read one resource by its type and id."""
 
-from typing import ClassVar, Final
+from typing import ClassVar
 
 from pydantic import BaseModel, Field, JsonValue
 
 from dirigent_common import BlockModel
 from dirigent_fhir.connection import client_for
+from dirigent_fhir.r4 import RESOURCE_ID, RESOURCE_TYPE
 from dirigent_plugin import ConnectionRef, Operator, OperatorSpec, StepContext
-
-#: A FHIR resource type as it appears in a path: an upper-case letter, then letters.
-RESOURCE_TYPE: Final = r"^[A-Z][A-Za-z]{1,63}$"
-
-#: A FHIR logical id: up to 64 letters, digits, hyphens and dots.
-RESOURCE_ID: Final = r"^[A-Za-z0-9\-.]{1,64}$"
 
 
 class FhirReadConfig(BlockModel):
