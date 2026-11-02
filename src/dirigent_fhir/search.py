@@ -1,20 +1,66 @@
 """``fhir.search``: search one resource type, following the server's next links under a page cap."""
 
 import asyncio
-from typing import ClassVar, Literal
+import re
+from typing import ClassVar, Final, Literal
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from dirigent_common import BlockModel, Size
 from dirigent_fhir.client import SearchPages
 from dirigent_fhir.connection import client_for
-from dirigent_fhir.messages import SEARCH_MORE_PAGES
+from dirigent_fhir.messages import SEARCH_CREDENTIAL_REFUSED, SEARCH_MORE_PAGES
 from dirigent_fhir.r4 import RESOURCE_TYPE, FhirIssue, JsonObject, as_object, searchset
 from dirigent_plugin import BlockFailure, ConnectionRef, ErrorClass, Operator, OperatorSpec, StepContext
+
+#: A compound that makes a search parameter's name, read without its separators, that of a credential.
+CREDENTIAL_COMPOUNDS: Final = (
+    "accesskey",
+    "accesstoken",
+    "apikey",
+    "authtoken",
+    "clientsecret",
+    "idtoken",
+    "privatekey",
+    "refreshtoken",
+    "secretkey",
+    "sessionid",
+    "sessiontoken",
+)
+
+#: A whole word of a search parameter's name that does the same, as a final `token` does.
+CREDENTIAL_WORDS: Final = frozenset(
+    {
+        "auth",
+        "authorization",
+        "bearer",
+        "credential",
+        "credentials",
+        "jwt",
+        "passwd",
+        "password",
+        "pwd",
+        "secret",
+        "secrets",
+    }
+)
+
+
+def _carries_credential(name: str) -> bool:
+    """Whether a search parameter's name is that of a credential, in any case and with any separator."""
+    words = [word for word in re.split(r"[^a-z0-9]+", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name).lower()) if word]
+    compact = "".join(words)
+    return (
+        any(word in compact for word in CREDENTIAL_COMPOUNDS)
+        or bool(CREDENTIAL_WORDS.intersection(words))
+        or words[-1:] == ["token"]
+    )
 
 
 class FhirSearchConfig(BlockModel):
     """What to search for, and how many pages to follow."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     connection: ConnectionRef
     """The code of the fhir connection naming the server."""
@@ -22,9 +68,12 @@ class FhirSearchConfig(BlockModel):
     resource_type: str = Field(pattern=RESOURCE_TYPE)
     """The resource type searched, such as `Patient`."""
 
-    params: dict[str, str | list[str]] = Field(default_factory=dict[str, str | list[str]])
+    params: dict[str, str | list[str]] = Field(
+        default_factory=dict[str, str | list[str]], json_schema_extra={"x-dirigent-plain-query": True}
+    )
     """The search parameters as FHIR spells them, such as `{identifier: "http://example.org/mrn|", _count: "50"}`;
-    a list sends the parameter once per value, which FHIR reads as AND."""
+    a list sends the parameter once per value, which FHIR reads as AND. One whose name carries a credential is
+    refused."""
 
     max_pages: int = Field(default=10, ge=1, le=10_000)
     """The most pages followed, the first included."""
@@ -40,6 +89,15 @@ class FhirSearchConfig(BlockModel):
     """What the step hands on: `bundle` folds every page into one Bundle under `bundle`, `pages` lists each page as
     its own searchset Bundle under `bundles`, and `resources` lists every resource under `resources`, so a
     following step's `for_each` maps over either list."""
+
+    @field_validator("params")
+    @classmethod
+    def _params_hold_no_credential(cls, params: dict[str, str | list[str]]) -> dict[str, str | list[str]]:
+        """Refuse a parameter whose name carries a credential, repeating the name and never the value."""
+        for name in params:
+            if _carries_credential(name):
+                raise ValueError(SEARCH_CREDENTIAL_REFUSED.render(parameter=name))
+        return params
 
 
 class FhirSearchOutput(BlockModel):

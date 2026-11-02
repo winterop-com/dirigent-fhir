@@ -45,6 +45,18 @@ NO_BASIC_USERNAME = FHIR.define("connection.no_basic_username", "basic_password 
 
 BAD_BASE_URL = FHIR.define("connection.bad_base_url", "base_url must be an absolute http or https URL")
 
+BASE_URL_HOLDS_MORE = FHIR.define(
+    "connection.base_url_holds_more",
+    "base_url says where the server is and nothing else: a user, a password, a query or a fragment in it is refused, "
+    "because it is stored as written; a credential goes in bearer_token or basic_password",
+)
+
+SEARCH_CREDENTIAL_REFUSED = FHIR.define(
+    "search.credential_refused",
+    "the {parameter} search parameter carries a credential, and a document is stored as written; put it on the fhir "
+    "connection, in bearer_token or basic_password",
+)
+
 CONNECTION_UNREACHABLE = FHIR.define("connection.unreachable", "the FHIR server did not answer: {detail}")
 
 NOT_A_CAPABILITY_STATEMENT = FHIR.define(

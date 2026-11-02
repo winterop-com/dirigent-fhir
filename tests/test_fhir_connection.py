@@ -199,3 +199,19 @@ async def test_a_server_quoting_the_credential_never_puts_it_in_an_output(
     )
     out = await call_block(FhirReadOperator(), {"connection": CONNECTION, "resource_type": "Patient", "id": "1"}, ctx)
     assert out.model_dump()["resource"]["text"] == {"div": "***"}
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:DUMMYSECRET@fhir.test/fhir",
+        "https://DUMMYSECRET@fhir.test/fhir",
+        "https://fhir.test/fhir?api_key=DUMMYSECRET",
+        "https://fhir.test/fhir#DUMMYSECRET",
+    ],
+)
+def test_a_base_url_holding_more_than_where_is_refused_without_repeating_it(url: str) -> None:
+    with pytest.raises(ValidationError) as refused:
+        FhirConnectionConfig(base_url=url)
+    assert "base_url says where the server is" in str(refused.value)
+    assert "DUMMYSECRET" not in str(refused.value)

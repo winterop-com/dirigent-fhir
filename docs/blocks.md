@@ -76,7 +76,7 @@ Searches `GET [base]/{resource_type}` and follows `Bundle.link[next]` for at mos
 | --- | --- | --- | --- | --- |
 | `connection` | `string` | yes |  | The code of the fhir connection naming the server. |
 | `resource_type` | `string` | yes |  | The resource type searched, such as `Patient`. |
-| `params` | `object of string or string[]` |  |  | The search parameters as FHIR spells them, such as `{identifier: "http://example.org/mrn\|", _count: "50"}`; a list sends the parameter once per value, which FHIR reads as AND. |
+| `params` | `object of string or string[]` |  |  | The search parameters as FHIR spells them, such as `{identifier: "http://example.org/mrn\|", _count: "50"}`; a list sends the parameter once per value, which FHIR reads as AND. One whose name carries a credential is refused. |
 | `max_pages` | `integer` |  | `10` | The most pages followed, the first included. |
 | `max_total` | `size` |  | `"64MB"` | The most every page read may decode to together; a search past it fails, and the rest is not read. |
 | `on_more` | `"fail" or "stop"` |  | `"fail"` | What a next link past `max_pages` does: `fail` fails the step, `stop` answers with the pages read and `complete` false. |
@@ -476,6 +476,8 @@ stream of run records is selected by code however the English is later reworded 
 | `fhir.off_origin` | `a request to {target} was refused, because only {origin}, the origin of base_url, is sent requests through this connection` |
 | `fhir.too_many_redirects` | `{where} was redirected more than {limit} times, and the redirects were not followed further` |
 | `fhir.issues_and_more` | `{named} (and {more} more)` |
+| `fhir.connection.base_url_holds_more` | `base_url says where the server is and nothing else: a user, a password, a query or a fragment in it is refused, because it is stored as written; a credential goes in bearer_token or basic_password` |
+| `fhir.search.credential_refused` | `the {parameter} search parameter carries a credential, and a document is stored as written; put it on the fhir connection, in bearer_token or basic_password` |
 | `fhir.connection.bad_token` | `a bearer_token must be visible ASCII with no whitespace, or it cannot be sent as a header value` |
 | `fhir.connection.both_credentials` | `a connection carries a bearer_token or basic credentials, not both` |
 | `fhir.connection.no_basic_password` | `basic_username is set but basic_password is not` |

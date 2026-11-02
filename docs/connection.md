@@ -25,7 +25,7 @@ connections:
 
 | Field | Default | What it is |
 | --- | --- | --- |
-| `base_url` | required | The server's base, such as `http://localhost:8090/fhir`. An absolute `http` or `https` URL. |
+| `base_url` | required | The server's base, such as `http://localhost:8090/fhir`. An absolute `http` or `https` URL; a user, a password, a query or a fragment in it is refused. |
 | `bearer_token` | none | A token sent as `Authorization: Bearer`: visible ASCII with no whitespace. |
 | `basic_username` | none | The user half of HTTP basic authentication. |
 | `basic_password` | none | The secret half of HTTP basic authentication. |

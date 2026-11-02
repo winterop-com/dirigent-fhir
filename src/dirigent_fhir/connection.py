@@ -5,6 +5,7 @@ import re
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import ClassVar, Final
+from urllib.parse import urlsplit
 
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
@@ -24,6 +25,7 @@ from dirigent_fhir.limits import BoundedClient, Limits
 from dirigent_fhir.messages import (
     BAD_BASE_URL,
     BAD_TOKEN,
+    BASE_URL_HOLDS_MORE,
     BOTH_CREDENTIALS,
     CONNECTION_UNREACHABLE,
     NO_BASIC_PASSWORD,
@@ -73,7 +75,10 @@ class FhirConnectionConfig(BlockModel):
     @field_validator("base_url")
     @classmethod
     def _absolute(cls, url: str) -> str:
-        """Refuse a base that names no http or https origin."""
+        """Refuse a base that names no http or https origin, or holds anything beyond one."""
+        split = urlsplit(url)
+        if "@" in split.netloc or split.query or split.fragment:
+            raise ValueError(BASE_URL_HOLDS_MORE.render())
         parsed = httpx2.URL(url)
         if parsed.scheme not in DEFAULT_PORTS or not parsed.host:
             raise ValueError(BAD_BASE_URL.render())
