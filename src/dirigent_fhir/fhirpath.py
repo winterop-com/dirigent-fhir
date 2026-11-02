@@ -1,6 +1,8 @@
 """The ``fhirpath`` engines: a FHIRPath expression as the transform, map and filter verbs' program.
 
-The input is any JSON value: nothing here requires a ``resourceType``. An expression is evaluated by the engine's FHIRPath evaluator in a runner process of its own,
+The input is any JSON value: nothing here requires a ``resourceType``.
+
+An expression is evaluated by the engine's FHIRPath evaluator in a runner process of its own,
 over dirigent's runner protocol, so a step's timeout ends a long evaluation by killing that
 process. A value reaches an expression only as a variable: the step's ``variables`` are bound
 as FHIRPath environment variables, read as ``%name``, and a ``${...}`` in the expression is
