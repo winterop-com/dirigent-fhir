@@ -24,6 +24,10 @@ OFF_ORIGIN = FHIR.define(
     "through this connection",
 )
 
+TOO_MANY_REDIRECTS = FHIR.define(
+    "too_many_redirects", "{where} was redirected more than {limit} times, and the redirects were not followed further"
+)
+
 ISSUES_AND_MORE = FHIR.define("issues_and_more", "{named} (and {more} more)")
 
 BAD_TOKEN = FHIR.define(

@@ -32,6 +32,12 @@ class Limits:
     past_deadline: Message
     """The refusal for a request past its deadline, naming ``where`` and ``seconds``."""
 
+    too_many_redirects: Message
+    """The refusal for a request redirected more than ``max_redirects`` times, naming ``where`` and ``limit``."""
+
+    max_redirects: int = 5
+    """The most redirects one request follows."""
+
 
 class BoundedClient:
     """A connection's client, through which every request is held to the connection's limits."""
@@ -75,15 +81,40 @@ class BoundedClient:
     async def stream(
         self, method: str, path: str, *, request_deadline: float | None = None, **kwargs: Any
     ) -> AsyncGenerator[httpx2.Response]:
-        """Open a request whose whole life, from sending it to reading what the caller reads, has a deadline."""
+        """Open a request whose whole life, from sending it to reading what the caller reads, has a deadline.
+
+        A redirect is followed for at most ``max_redirects`` hops, each hop sent through the client's
+        request hooks, and the body of a redirect is never read.
+        """
         seconds = self._limits.request_deadline if request_deadline is None else request_deadline
         try:
-            async with asyncio.timeout(seconds), self._client.stream(method, path, **kwargs) as response:
-                yield response
+            async with asyncio.timeout(seconds):
+                response = await self._follow(self._client.build_request(method, path, **kwargs), f"{method} {path}")
+                try:
+                    yield response
+                finally:
+                    await response.aclose()
         except TimeoutError as error:
             raise BlockFailure(
                 self._limits.past_deadline, error_class=ErrorClass.TRANSIENT, where=f"{method} {path}", seconds=seconds
             ) from error
+
+    async def _follow(self, request: httpx2.Request, where: str) -> httpx2.Response:
+        """Send a request and each redirect after it, closing every redirect unread, and answer the last response."""
+        response = await self._client.send(request, stream=True, follow_redirects=False)
+        hops = 0
+        while (following := response.next_request) is not None:
+            await response.aclose()
+            hops += 1
+            if hops > self._limits.max_redirects:
+                raise BlockFailure(
+                    self._limits.too_many_redirects,
+                    error_class=ErrorClass.REJECTED,
+                    where=where,
+                    limit=self._limits.max_redirects,
+                )
+            response = await self._client.send(following, stream=True, follow_redirects=False)
+        return response
 
     async def request(self, method: str, path: str, **kwargs: Any) -> httpx2.Response:
         """Make one request and read its answer whole.
