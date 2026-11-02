@@ -18,6 +18,9 @@ map and filter verbs:
 | `map.fhirpath` | computes | Replaces every element of a list with what a FHIRPath expression makes of it. |
 | `filter.fhirpath` | computes | Keeps the elements of a list a FHIRPath expression answers true for. |
 
+The three FHIRPath verbs read any JSON value, not only FHIR, and need no server: see
+[On JSON that is not FHIR](docs/blocks.md#on-json-that-is-not-fhir).
+
 It is FHIR as a system of its own, not a DHIS2 pack: FHIR to FHIR is as much its purpose as
 feeding DHIS2. Between steps a resource or a Bundle is plain FHIR JSON. Inside a block the R4
 models of `dhis2w-fhir-engine` type what they cover, and a resource they do not model passes

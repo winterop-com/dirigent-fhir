@@ -292,7 +292,8 @@ language, evaluated by the engine's FHIRPath evaluator. Each keeps its frame's p
 transform reshapes one value, a map keeps the list's length, and a filter keeps elements
 unmodified. Mapping between two servers' profiles is where FHIRPath earns its place over jq: it
 walks a resource the way FHIR names it, `name.where(use = 'official').family`, with FHIR's own
-dates, quantities and `ofType()`.
+dates, quantities and `ofType()`. They are not limited to FHIR: they read
+[any JSON value](#on-json-that-is-not-fhir).
 
 **What a collection becomes.** A FHIRPath answer is a collection. Under `transform.fhirpath` and
 `map.fhirpath` an empty one is `null`, one item is the item itself, and several are their list.
@@ -327,13 +328,55 @@ a long evaluation by killing that process. One evaluation's answer may run to `m
 JSON. The evaluator opens no file and no socket: `resolve()` and the terminology functions have
 nothing to reach.
 
+### On JSON that is not FHIR
+
+The three verbs read any JSON value. They look for no `resourceType`, take no connection and reach
+no server, so an API's answer, a file read through `storage.read` or a list written inline is
+evaluated the way a resource is:
+
+```yaml
+big:
+  block: filter.fhirpath
+  config:
+    input:
+      - {name: oslo, pop: 700000}
+      - {name: bergen, pop: 290000}
+      - {name: tromso}
+    program: pop > %limit
+    variables:
+      limit: 500000
+```
+
+This keeps `oslo`. [`fhir-fhirpath-plain-json`](examples.md#fhirpath-on-plain-json) is the whole
+document, which runs with nothing but the pack installed. Paths, `where()`, `exists()`, `count()`,
+the string functions and date literals all work, and a string compares against a date literal, so
+`founded > @1500-01-01` needs no conversion.
+
+What to expect on data with no schema behind it:
+
+- **A missing field is an empty answer, never an error.** `tromso` above has no `pop`, so
+  `filter.fhirpath` drops it, and `transform.fhirpath` and `map.fhirpath` answer `null`. A misspelt
+  field reads the same way: a filter on one drops every element, and the step succeeds.
+- **A key that is not a plain identifier goes in backticks:** `` `first-name` ``, and a word
+  FHIRPath reserves, `` `div` ``. A double-quoted key does not parse.
+- **A list given to `transform.fhirpath` is a collection.** `name` reads every element's, and
+  `where(active).name` the elements it keeps. `$this.name` over the list answers nothing, so write
+  the bare path. Under `map` and `filter` each element is evaluated on its own and `$this` is that
+  element, so `$this > 3` filters a list of numbers.
+- **A type name reads only that type.** `Patient.name` is empty on a record that is no `Patient`.
+
+For JSON alone, `filter.jq` and its siblings come with dirigent, while these bring in this pack and
+what it depends on: the FHIR engine, and `dhis2w-client` and `fastapi` through it. FHIRPath pays for
+that where the pack is installed already, or where one pipeline reads resources and other JSON with
+one language.
+
 ### `transform.fhirpath`
 
 Reshape a value with a FHIRPath expression.
 
 Idempotent. Computes.
 
-Evaluates the expression over `input` as `%resource`, a resource or a Bundle, and hands the answer on as `value`. A list as `input` is evaluated as a collection.
+Evaluates the expression over `input` as `%resource`, any JSON value such as a resource or a Bundle, and hands the answer on as `value`. A list as `input` is evaluated as a collection.
 
 **Config**
 

@@ -6,8 +6,8 @@ the references between them rewritten, structural validation, CQL and measures, 
 `map.fhirpath` and `filter.fhirpath`. Installing the pack is what puts
 the blocks in the catalog; an instance without it refuses these at the block preflight.
 
-Every document talks to a local HAPI FHIR server rather than a public one, because three of them
-write. Start one, and a second on another port for the copy:
+Every document but `fhir-fhirpath-plain-json` talks to a local HAPI FHIR server rather than a public
+one, because three of them write. Start one, and a second on another port for the copy:
 
 ```bash
 docker run -d --name fhir-source -p 8090:8080 hapiproject/hapi:v8.12.0-2
@@ -27,5 +27,6 @@ under `requires.connections`, so create a `fhir` connection under that code or r
 | [fhir-copy-on-schedule.yaml](fhir-copy-on-schedule.yaml) | Copy patients and their observations from one server to another, nightly. |
 | [fhir-copy-page-by-page.yaml](fhir-copy-page-by-page.yaml) | Copy a search to another server, one transaction per page, fanned out. |
 | [fhir-fhirpath-high-readings.yaml](fhir-fhirpath-high-readings.yaml) | Filter, map and reshape a search's observations with FHIRPath. |
+| [fhir-fhirpath-plain-json.yaml](fhir-fhirpath-plain-json.yaml) | Filter, map and reshape records that are not FHIR, with no server. |
 | [fhir-validate-before-copy.yaml](fhir-validate-before-copy.yaml) | Validate a search's resources structurally, and copy them only if they are sound. |
 | [fhir-measure-heavy-adults.yaml](fhir-measure-heavy-adults.yaml) | Evaluate CQL over a search, and score a measure into a MeasureReport. |
