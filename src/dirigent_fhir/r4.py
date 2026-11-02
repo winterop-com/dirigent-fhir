@@ -6,7 +6,7 @@ is validated, and a document the projection still does not fit is read as plain 
 """
 
 import types
-from typing import Any, Union, cast, get_args, get_origin
+from typing import Any, Final, Union, cast, get_args, get_origin
 
 from dhis2w_fhir_engine.r4.resources import (
     Bundle,
@@ -23,6 +23,12 @@ from pydantic import BaseModel, Field, JsonValue, ValidationError
 from dirigent_common import BlockModel
 
 JsonObject = dict[str, JsonValue]
+
+#: A FHIR resource type as it appears in a path: an upper-case letter, then letters.
+RESOURCE_TYPE: Final = r"^[A-Z][A-Za-z]{1,63}$"
+
+#: A FHIR logical id: up to 64 letters, digits, hyphens and dots.
+RESOURCE_ID: Final = r"^[A-Za-z0-9\-.]{1,64}$"
 
 
 class FhirIssue(BlockModel):

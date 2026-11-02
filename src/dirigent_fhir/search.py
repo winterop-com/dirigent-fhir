@@ -9,8 +9,7 @@ from dirigent_common import BlockModel, Size
 from dirigent_fhir.client import SearchPages
 from dirigent_fhir.connection import client_for
 from dirigent_fhir.messages import SEARCH_MORE_PAGES
-from dirigent_fhir.r4 import FhirIssue, JsonObject, as_object, searchset
-from dirigent_fhir.read import RESOURCE_TYPE
+from dirigent_fhir.r4 import RESOURCE_TYPE, FhirIssue, JsonObject, as_object, searchset
 from dirigent_plugin import BlockFailure, ConnectionRef, ErrorClass, Operator, OperatorSpec, StepContext
 
 

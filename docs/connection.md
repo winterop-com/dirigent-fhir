@@ -38,6 +38,11 @@ A connection carries no credential, a `bearer_token`, or both halves of the basi
 validation refuses anything else: both kinds at once, or half a pair. A refusal never repeats
 what the token held.
 
+A server or proxy that quotes the `Authorization` header it was sent never puts the credential
+in a refusal, a health check's detail, a log line or a step's output: the header value, the
+credential after its scheme, and a basic pair decoded are each replaced by `***` wherever the
+answer says them.
+
 ## One origin
 
 The credential goes only to the origin of `base_url`: its scheme, host and port. Every request

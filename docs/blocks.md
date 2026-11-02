@@ -101,7 +101,7 @@ Create a FHIR resource, conditionally with ifNoneExist.
 
 Not idempotent: with `if_none_exist` unset every run creates another resource. Writes.
 
-Posts the resource to `[base]/{resourceType}`, without its `id` and its version metadata, asking for the stored resource back. With `if_none_exist` the server is sent `If-None-Exist`, creates the resource only when nothing matches, and answers with the one that does otherwise; `outcome` says which. More than one match fails the step, rejected.
+Posts the resource to `[base]/{resourceType}`, without its `id` and its version metadata, asking for the stored resource back. With `if_none_exist` the server is sent `If-None-Exist`, creates the resource only when nothing matches, and answers with the one that does otherwise; `outcome` says which. More than one match fails the step, rejected. A `resourceType` that is not a FHIR type name, an upper-case letter and then letters, fails the step, rejected, before anything is sent, so the path is always `[base]/{resourceType}`.
 
 **Config**
 
@@ -129,7 +129,7 @@ Update a FHIR resource matched on its identifier.
 
 Idempotent. Writes.
 
-A conditional update: `PUT [base]/{resourceType}?identifier=system|value`, on the first of the resource's identifiers with both a system and a value, or the first under `identifier_system`. The server writes over the one resource that matches, creates it when none does, and refuses when several do. The resource's own `id` is never sent, so an id from another server never decides what is overwritten. A resource with no such identifier fails the step before anything is sent.
+A conditional update: `PUT [base]/{resourceType}?identifier=system|value`, on the first of the resource's identifiers with both a system and a value, or the first under `identifier_system`. The server writes over the one resource that matches, creates it when none does, and refuses when several do. The resource's own `id` is never sent, so an id from another server never decides what is overwritten. A resource with no such identifier, or with a `resourceType` that is not a FHIR type name, fails the step before anything is sent.
 
 **Config**
 
@@ -442,6 +442,7 @@ stream of run records is selected by code however the English is later reworded 
 | `fhir.search.more_pages` | `the search has more than max_pages ({max_pages}) pages, and on_more is fail; raise max_pages, narrow the search, or set on_more to stop` |
 | `fhir.search.too_large` | `{where} took the search's pages past max_total ({limit} bytes) together, and the rest was not read; raise max_total, narrow the search, or lower max_pages` |
 | `fhir.resource.no_resource_type` | `the resource carries no resourceType` |
+| `fhir.resource.bad_resource_type` | `the resource's resourceType is not a FHIR resource type, an upper-case letter and then letters such as Patient, so it is not written` |
 | `fhir.resource.no_identifier` | `the {resource} carries no identifier with both a system and a value{system}, so there is nothing to match it on; the source server's id is never used` |
 | `fhir.resource.identifier_system` | ` under the system {system}` |
 | `fhir.transaction.nothing` | `a transaction step needs resources or a bundle, exactly one of them` |
