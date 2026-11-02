@@ -4,6 +4,9 @@ Every call goes through a bounded client held to one origin. A refusal is raised
 failure carrying the server's ``OperationOutcome`` in its own words.
 """
 
+import base64
+import binascii
+import contextlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -13,6 +16,7 @@ from typing import Any, Final, Self
 import httpx2
 from pydantic import JsonValue
 
+from dirigent_common import scrub, scrub_json, spellings
 from dirigent_fhir.limits import BoundedClient
 from dirigent_fhir.messages import (
     ANSWERED,
@@ -35,6 +39,9 @@ from dirigent_fhir.r4 import (
     resource_type,
 )
 from dirigent_plugin import BlockFailure, ErrorClass
+
+#: The header a credential travels in.
+AUTHORIZATION: Final = "Authorization"
 
 #: The media type every request asks for and every body is sent as.
 FHIR_JSON: Final = "application/fhir+json"
@@ -100,19 +107,51 @@ def said(issues: list[FhirIssue]) -> str:
     return ISSUES_AND_MORE.render(named=named, more=more) if more > 0 else named
 
 
-def _body(response: httpx2.Response) -> object:
-    """The JSON a response carries, or None when it carries none."""
+def credential_spellings(authorization: str | None) -> set[str]:
+    """Every spelling of an ``Authorization`` value a server may quote: whole, its credential, a basic pair decoded."""
+    if not authorization:
+        return set()
+    written = {authorization}
+    scheme, _, credential = authorization.partition(" ")
+    if credential:
+        written.add(credential)
+        if scheme.lower() == "basic":
+            with contextlib.suppress(binascii.Error, UnicodeDecodeError):
+                written.add(base64.b64decode(credential, validate=True).decode())
+    found: set[str] = set()
+    for one in written:
+        found |= spellings(one)
+    return found
+
+
+def sent_credential(response: httpx2.Response) -> set[str]:
+    """The spellings of the credential the request behind a response carried."""
     try:
-        parsed: object = response.json()
+        request = response.request
+    except RuntimeError:
+        return set()
+    return credential_spellings(request.headers.get(AUTHORIZATION))
+
+
+def _body(response: httpx2.Response) -> object:
+    """The JSON a response carries, with the credential its request sent scrubbed, or None when it carries none."""
+    try:
+        parsed: JsonValue = response.json()
     except ValueError:
         return None
-    return parsed
+    secrets = sent_credential(response)
+    return scrub_json(parsed, secrets) if secrets else parsed
+
+
+def _text(response: httpx2.Response) -> str:
+    """The opening of a response's text, with the credential its request sent scrubbed."""
+    return scrub(response.text, sent_credential(response))[:QUOTED]
 
 
 def refusal(response: httpx2.Response, where: str) -> BlockFailure:
     """Turn an error answer into a classified failure, in the words of its OperationOutcome when it has one."""
     issues = issues_of(_body(response))
-    remote = said(issues) if issues else (response.text[:QUOTED] or response.reason_phrase)
+    remote = said(issues) if issues else (_text(response) or response.reason_phrase)
     status = response.status_code
     return BlockFailure(
         ANSWERED,
@@ -289,6 +328,8 @@ def _written(response: httpx2.Response) -> Written:
     issues = issues_of(found)
     resource = found if found is not None and resource_type(found) not in (None, "OperationOutcome") else None
     location = response.headers.get("Content-Location") or response.headers.get("Location")
+    if location is not None:
+        location = scrub(location, sent_credential(response))
     return Written(status=response.status_code, location=location, resource=resource, issues=issues)
 
 
