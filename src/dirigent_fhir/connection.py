@@ -9,8 +9,17 @@ from typing import ClassVar, Final
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
-from dirigent_common import BlockModel, Duration, HealthReport, Size
-from dirigent_fhir.client import DEFAULT_PORTS, FHIR_JSON, FhirClient, Origin, ensure_on_origin, origin_of
+from dirigent_common import BlockModel, Duration, HealthReport, Size, scrub
+from dirigent_fhir.client import (
+    AUTHORIZATION,
+    DEFAULT_PORTS,
+    FHIR_JSON,
+    FhirClient,
+    Origin,
+    credential_spellings,
+    ensure_on_origin,
+    origin_of,
+)
 from dirigent_fhir.limits import BoundedClient, Limits
 from dirigent_fhir.messages import (
     BAD_BASE_URL,
@@ -26,9 +35,6 @@ from dirigent_plugin import BlockFailure, ConnectionKind, ConnectionRef, StepCon
 
 #: What a bearer token may hold: visible ASCII, the only text a header value carries unchanged.
 TOKEN: Final = re.compile(r"[\x21-\x7e]+")
-
-#: The header a credential travels in.
-AUTHORIZATION: Final = "Authorization"
 
 
 class FhirConnectionConfig(BlockModel):
@@ -183,18 +189,23 @@ class FhirConnectionKind(ConnectionKind):
         self._transport = transport
 
     async def check(self, config: BaseModel) -> HealthReport:
-        """Read the server's CapabilityStatement from ``/metadata`` and report its FHIR version, never raising."""
+        """Read the server's CapabilityStatement from ``/metadata`` and report its FHIR version, never raising.
+
+        The detail never holds the connection's credential, in any spelling the server may quote it in.
+        """
+        secrets: set[str] = set()
         try:
             settings = settings_of(config)
+            secrets = credential_spellings(credential(settings))
             async with FhirClient(build_client(settings, self._transport), origin_of(settings.base_url)) as fhir:
                 statement = await fhir.capabilities()
         except BlockFailure as failure:
-            return HealthReport(healthy=False, detail=_unreachable(failure.message))
+            return HealthReport(healthy=False, detail=_unreachable(failure.message, secrets))
         except Exception as error:  # noqa: BLE001 - a health check reports its verdict, it never raises
-            return HealthReport(healthy=False, detail=_unreachable(str(error) or type(error).__name__))
+            return HealthReport(healthy=False, detail=_unreachable(str(error) or type(error).__name__, secrets))
         return HealthReport(healthy=True, version=statement.fhir_version)
 
 
-def _unreachable(detail: str) -> str:
-    """Say the server did not answer as a FHIR server, and why."""
-    return CONNECTION_UNREACHABLE.render(detail=detail)
+def _unreachable(detail: str, secrets: set[str]) -> str:
+    """Say the server did not answer as a FHIR server, and why, without the credential."""
+    return CONNECTION_UNREACHABLE.render(detail=scrub(detail, secrets))
