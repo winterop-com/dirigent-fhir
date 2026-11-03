@@ -1,4 +1,4 @@
-"""A small FHIR REST client: reads, paged searches, conditional writes, transactions, and ``/metadata``.
+"""A small FHIR REST client: reads, paged searches, writes, patches, deletes, operations, transactions, ``/metadata``.
 
 Every call goes through a bounded client held to one origin. A refusal is raised as a classified
 failure carrying the server's ``OperationOutcome`` in its own words.
@@ -12,7 +12,7 @@ import json
 import re
 from dataclasses import dataclass, field, replace
 from types import TracebackType
-from typing import Any, Final, Self
+from typing import Any, Final, Self, cast
 
 import httpx2
 from pydantic import JsonValue
@@ -281,17 +281,24 @@ class FhirClient:
 
         Every page together decodes to at most ``max_total``, and each is parsed off the event loop.
         """
+        return await self._pages("GET", kind, f"GET {kind}", max_pages, max_total, "Bundle", params=params)
+
+    async def _pages(
+        self, method: str, path: str, where: str, max_pages: int, max_total: int, expected: str | None, **kwargs: Any
+    ) -> SearchPages:
+        """Make one interaction and follow the next links of the Bundle it answers, on the origin only."""
         budget = Budget(remaining=max_total, too_large=SEARCH_TOO_LARGE, limit=max_total)
-        response = await self._call("GET", kind, params=params, budget=budget)
-        page = await asyncio.to_thread(resource_of, response, f"GET {kind}", "Bundle")
+        response = await self._call(method, path, budget=budget, **kwargs)
+        if expected is None and not response.content.strip():
+            return SearchPages(pages=[], more=False)
+        page = await asyncio.to_thread(resource_of, response, where, expected)
         pages = [page]
         budget = replace(budget, remaining=budget.remaining - len(response.content))
-        link = next_link(page)
+        link = next_link(page) if resource_type(page) == "Bundle" else None
         while link is not None and len(pages) < max_pages:
             ensure_on_origin(link, self._origin)
             response = await self._call("GET", link, budget=budget)
-            where = f"GET {kind} (page {len(pages) + 1})"
-            page = await asyncio.to_thread(resource_of, response, where, "Bundle")
+            page = await asyncio.to_thread(resource_of, response, f"{where} (page {len(pages) + 1})", "Bundle")
             pages.append(page)
             budget = replace(budget, remaining=budget.remaining - len(response.content))
             link = next_link(page)
@@ -314,6 +321,74 @@ class FhirClient:
         )
         return _written(response)
 
+    async def update_at(self, resource: JsonObject, resource_id: str) -> Written:
+        """Write a resource at its type and id, which the server creates when it allows update as create."""
+        kind = writable_type(resource)
+        body = {**resource, "id": resource_id}
+        response = await self._call(
+            "PUT", f"{kind}/{resource_id}", content=json.dumps(body), headers=RETURN_REPRESENTATION
+        )
+        return _written(response)
+
+    async def matches(self, kind: str, params: list[tuple[str, str]], most: int) -> "Matches":
+        """The ids a search matches, read page by page until there are none left or more than ``most``."""
+        asked = [*params, ("_count", str(most + 1)), ("_elements", "id")]
+        response = await self._call("GET", kind, params=asked)
+        page = resource_of(response, f"GET {kind}", "Bundle")
+        total = page.get("total")
+        ids = _ids_of(page, kind)
+        pages = 1
+        while (link := next_link(page)) is not None and len(ids) <= most and pages <= most:
+            ensure_on_origin(link, self._origin)
+            page = resource_of(await self._call("GET", link), f"GET {kind} (page {pages + 1})", "Bundle")
+            ids.extend(_ids_of(page, kind))
+            pages += 1
+        return Matches(ids=ids, total=total if isinstance(total, int) else None)
+
+    async def holds(self, kind: str, resource_id: str) -> bool:
+        """Whether the server holds a resource at its type and id, one deleted or never there answering no."""
+        path = f"{kind}/{resource_id}"
+        response = await self._client.request("GET", path, params=[("_elements", "id")])
+        if response.status_code in (404, 410):
+            return False
+        if response.is_error:
+            raise refusal(response, f"GET {path}")
+        return True
+
+    async def delete(self, kind: str, resource_id: str) -> "Deleted":
+        """Delete one resource, one already gone answering as absent rather than as a refusal."""
+        path = f"{kind}/{resource_id}"
+        response = await self._client.request("DELETE", path)
+        if response.status_code in (404, 410):
+            return Deleted(absent=True, issues=issues_of(_body(response)))
+        if response.is_error:
+            raise refusal(response, f"DELETE {path}")
+        return Deleted(absent=False, issues=issues_of(_body(response)))
+
+    async def patch(
+        self, path: str, body: JsonValue, content_type: str, params: list[tuple[str, str]] | None = None
+    ) -> Written:
+        """Patch what a path names with a JSON Patch or a FHIRPath Patch, asking for the patched resource back."""
+        headers = {**RETURN_REPRESENTATION, "Content-Type": content_type}
+        response = await self._call("PATCH", path, params=params, content=json.dumps(body), headers=headers)
+        return _written(response)
+
+    async def operation(
+        self,
+        method: str,
+        path: str,
+        params: list[tuple[str, str]],
+        body: JsonObject | None,
+        max_pages: int,
+        max_total: int,
+    ) -> SearchPages:
+        """Invoke an operation, following the next links of a Bundle it answers with; no answer at all is no page."""
+        kwargs: dict[str, Any] = {"params": params}
+        if body is not None:
+            kwargs["content"] = json.dumps(body)
+            kwargs["headers"] = {"Content-Type": FHIR_JSON}
+        return await self._pages(method, path, f"{method} {path}", max_pages, max_total, None, **kwargs)
+
     async def transaction(self, bundle: JsonObject) -> JsonObject:
         """Send a transaction or batch Bundle to the base, answering its response Bundle."""
         base = str(self._client.base_url).rstrip("/")
@@ -321,6 +396,22 @@ class FhirClient:
         if response.is_error:
             raise refusal(response, "POST (transaction)")
         return resource_of(response, "POST (transaction)", "Bundle")
+
+
+@dataclass(frozen=True, slots=True)
+class Matches:
+    """What a search for the resources a conditional interaction would touch found."""
+
+    ids: list[str]
+    total: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class Deleted:
+    """What a delete answered: whether there was nothing to delete, and what the server said."""
+
+    absent: bool
+    issues: list[FhirIssue] = field(default_factory=list[FhirIssue])
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,6 +432,17 @@ def _written(response: httpx2.Response) -> Written:
     if location is not None:
         location = scrub(location, sent_credential(response))
     return Written(status=response.status_code, location=location, resource=resource, issues=issues)
+
+
+def _ids_of(page: JsonObject, kind: str) -> list[str]:
+    """The ids of the resources of one type a searchset page matched, an included or outcome entry left out."""
+    entries = page.get("entry")
+    ids: list[str] = []
+    for item in cast("list[object]", entries) if isinstance(entries, list) else []:
+        found = as_object((as_object(item) or {}).get("resource")) or {}
+        if resource_type(found) == kind and isinstance(found.get("id"), str):
+            ids.append(str(found["id"]))
+    return ids
 
 
 def token(system: str, value: str) -> str:

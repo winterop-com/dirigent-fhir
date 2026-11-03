@@ -11,8 +11,8 @@ operator. The REST blocks declare the `fhir` group and take a `connection` namin
 are dirigent's own `transform`, `map` and `filter` frames with FHIRPath as their language: they
 declare the `transform` group, take no connection, and reach no server.
 
-**Effect** says what a block does to the server: the two reads change nothing there, the three
-writes do, and `fhir.validate`, `fhir.cql`, `fhir.measure` and the three FHIRPath verbs only compute, on what
+**Effect** says what a block does to the server: the two reads change nothing there, the five
+writes do, `fhir.operation` does what the operation it invokes does, and `fhir.validate`, `fhir.cql`, `fhir.measure` and the three FHIRPath verbs only compute, on what
 they are handed. **Idempotent** says whether re-running the block after an unclear
 failure is safe. The engine spends the step's retry budget either way, so this is what to read
 before writing `max_attempts` above 1. No block in this pack runs code on the worker, so none
@@ -26,8 +26,11 @@ storage work on it unchanged.
 | [`fhir.read`](#fhirread) | reads | yes | Read one FHIR resource by type and id. |
 | [`fhir.search`](#fhirsearch) | reads | yes | Search FHIR resources, following next links. |
 | [`fhir.create`](#fhircreate) | writes | no | Create a FHIR resource, conditionally with ifNoneExist. |
-| [`fhir.update`](#fhirupdate) | writes | yes | Update a FHIR resource matched on its identifier. |
+| [`fhir.update`](#fhirupdate) | writes | yes | Update a FHIR resource at its id or matched on its identifier. |
+| [`fhir.patch`](#fhirpatch) | writes | no | Patch a FHIR resource with JSON Patch or FHIRPath Patch. |
+| [`fhir.delete`](#fhirdelete) | writes | yes | Delete a FHIR resource by id, or what a search matches. |
 | [`fhir.transaction`](#fhirtransaction) | writes | yes | Write FHIR resources in one transaction or batch. |
+| [`fhir.operation`](#fhiroperation) | either | no | Invoke a FHIR operation such as $everything or $validate. |
 | [`fhir.validate`](#fhirvalidate) | computes | yes | Validate FHIR resources and Bundles structurally. |
 | [`fhir.cql`](#fhircql) | computes | yes | Evaluate a CQL library over FHIR resources. |
 | [`fhir.measure`](#fhirmeasure) | computes | yes | Evaluate a measure and answer a MeasureReport. |
@@ -125,19 +128,22 @@ Posts the resource to `[base]/{resourceType}`, without its `id` and its version 
 
 ### `fhir.update`
 
-Update a FHIR resource matched on its identifier.
+Update a FHIR resource at its id or matched on its identifier.
 
 Idempotent. Writes.
 
-A conditional update: `PUT [base]/{resourceType}?identifier=system|value`, on the first of the resource's identifiers with both a system and a value, or the first under `identifier_system`. The server writes over the one resource that matches, creates it when none does, and refuses when several do. The resource's own `id` is never sent, so an id from another server never decides what is overwritten. A resource with no such identifier, or with a `resourceType` that is not a FHIR type name, fails the step before anything is sent.
+With `id`, a plain update: `PUT [base]/{resourceType}/{id}`, with the body's `id` set to it. The server writes over the resource it holds there, or creates it at that id when it allows update as create; `outcome` says which. Use it for a resource that lives on this server, such as one a `fhir.search` or `fhir.read` step found here.
+
+Without `id`, a conditional update: `PUT [base]/{resourceType}?identifier=system|value`, on the first of the resource's identifiers with both a system and a value, or the first under `identifier_system`. The server writes over the one resource that matches, creates it when none does, and refuses when several do. The resource's own `id` is never sent, so an id from another server never decides what is overwritten. A resource with no such identifier, or with a `resourceType` that is not a FHIR type name, fails the step before anything is sent. `id` and `identifier_system` together are refused at apply.
 
 **Config**
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `connection` | `string` | yes |  | The code of the fhir connection naming the server. |
-| `resource` | `object` | yes |  | The resource as plain FHIR JSON; its `id` and version metadata are not sent, so the source server's id never decides what is overwritten. |
-| `identifier_system` | `string or null` |  | `null` | The system of the identifier the resource is matched on; the first identifier with both a system and a value when unset. |
+| `resource` | `object` | yes |  | The resource as plain FHIR JSON; its own `id` and version metadata are not sent, so the source server's id never decides what is overwritten. |
+| `id` | `string or null` |  | `null` | The id on this server to write the resource at, `PUT [base]/{resourceType}/{id}`; unset, the resource is matched on its identifier instead. Not with `identifier_system`. |
+| `identifier_system` | `string or null` |  | `null` | The system of the identifier the resource is matched on; the first identifier with both a system and a value when unset. Not with `id`. |
 
 **Output**
 
@@ -150,6 +156,68 @@ A conditional update: `PUT [base]/{resourceType}?identifier=system|value`, on th
 | `location` | `string or null` |  | `null` | Where the server says the resource lives. |
 | `resource` | `object or null` |  | `null` | The resource as the server stored it, when it answered with it. |
 | `issues` | `object[]` |  |  | What the server said about the write in an `OperationOutcome`, such as a warning. |
+
+### `fhir.patch`
+
+Patch a FHIR resource with JSON Patch or FHIRPath Patch.
+
+Not idempotent: a JSON Patch that appends to a list appends again on every run. Writes.
+
+Sends `PATCH [base]/{resource_type}/{id}`, or with `params` a conditional patch, `PATCH [base]/{resource_type}?search`, which the server applies to the one resource the search matches and refuses when several do. `json_patch` is an RFC 6902 document sent as `application/json-patch+json`; each entry is checked at apply for an `op`, a `path`, and the `value` or `from` its op needs. `fhirpath_patch` is a FHIRPath Patch, a `Parameters` resource of `operation` parameters, sent as `application/fhir+json`. Exactly one of them is given. The step answers the resource as the server stored it, under `outcome: updated`.
+
+A search that names no parameter matching on a value -- empty, or only `_count`, `_sort`, `_elements` and the other parameters that shape an answer -- is refused at apply, because it matches every resource of the type.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connection` | `string` | yes |  | The code of the fhir connection naming the server. |
+| `resource_type` | `string` | yes |  | The resource's type, such as `Patient` or `Observation`. |
+| `id` | `string or null` |  | `null` | The resource's id on that server. Set this or `params`. |
+| `params` | `object of string or string[] or null` |  | `null` | A search, such as `{identifier: "http://example.org/mrn\|12345"}`, that makes the interaction conditional on what it matches; one that names no parameter matching on a value, such as only `_count`, is refused, since it matches every resource of the type. Set this or `id`. |
+| `json_patch` | `object[] or null` |  | `null` | A JSON Patch, RFC 6902: a list of operations such as `{op: replace, path: /active, value: false}`. Set this or `fhirpath_patch`. |
+| `fhirpath_patch` | `object or null` |  | `null` | A FHIRPath Patch: a `Parameters` resource whose parameters are each named `operation`. Set this or `json_patch`. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `outcome` | `"created" or "updated" or "existing"` | yes |  | `created` when the server made a new resource, `updated` when it wrote over the one that matched, and `existing` when a conditional create found one already there and wrote nothing. |
+| `status` | `integer` | yes |  | The HTTP status the server answered with. |
+| `id` | `string or null` |  | `null` | The id the server holds the resource under. |
+| `version_id` | `string or null` |  | `null` | The version the server holds. |
+| `location` | `string or null` |  | `null` | Where the server says the resource lives. |
+| `resource` | `object or null` |  | `null` | The resource as the server stored it, when it answered with it. |
+| `issues` | `object[]` |  |  | What the server said about the write in an `OperationOutcome`, such as a warning. |
+
+### `fhir.delete`
+
+Delete a FHIR resource by id, or what a search matches.
+
+Idempotent: a resource already deleted, or never there, is `absent`. Writes.
+
+With `id`, the step reads `GET [base]/{resource_type}/{id}` first: a 404 or a 410 answers `absent` and nothing is deleted, otherwise it sends `DELETE [base]/{resource_type}/{id}`.
+
+With `params`, a conditional delete with a guard. The step first searches `GET [base]/{resource_type}?search&_count={max + 1}&_elements=id`, following next links on the connection's origin until it has read every match or more than `max`. A search matching more than `max`, by the total the server states or by the matches it answered, fails with `fhir.delete.too_many` and deletes nothing. Otherwise each resource the search found is deleted by its id, so nothing the guard did not see is deleted, and a server that refuses a conditional delete matching several, as HAPI does by default, is not in the way. `max` is 1 unless raised. A search that matches every resource of the type is refused at apply, as it is for `fhir.patch`.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connection` | `string` | yes |  | The code of the fhir connection naming the server. |
+| `resource_type` | `string` | yes |  | The resource's type, such as `Patient` or `Observation`. |
+| `id` | `string or null` |  | `null` | The resource's id on that server. Set this or `params`. |
+| `params` | `object of string or string[] or null` |  | `null` | A search, such as `{identifier: "http://example.org/mrn\|12345"}`, that makes the interaction conditional on what it matches; one that names no parameter matching on a value, such as only `_count`, is refused, since it matches every resource of the type. Set this or `id`. |
+| `max` | `integer` |  | `1` | The most resources a conditional delete may match: a search matching more fails the step before anything is deleted. Read for `params` only. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `outcome` | `"deleted" or "absent"` | yes |  | `deleted` when the server deleted something, `absent` when there was nothing to delete: the id is not held or is already deleted, or the search matched nothing. |
+| `deleted` | `integer` | yes |  | How many resources were deleted. |
+| `ids` | `string[]` |  |  | The ids of the resources deleted. |
+| `issues` | `object[]` |  |  | What the server said about each delete in an `OperationOutcome`, such as how long it took. |
 
 ### `fhir.transaction`
 
@@ -185,6 +253,41 @@ A transaction the server refuses fails the step with its `OperationOutcome`, and
 | `failed` | `integer` | yes |  | How many entries of a batch failed, under `on_failed: report`. |
 | `entries` | `object[]` | yes |  | One result per resource written, in the order they were sent. |
 | `response` | `object` | yes |  | The server's `transaction-response` or `batch-response` Bundle, as plain FHIR JSON. |
+
+### `fhir.operation`
+
+Invoke a FHIR operation such as $everything or $validate.
+
+Not idempotent: whether a repeat is safe is the operation's to say. Reads or writes, as the operation does.
+
+Invokes `operation` on the whole system, `[base]/$operation`; on a type, `[base]/{resource_type}/$operation`; or on one instance, `[base]/{resource_type}/{id}/$operation`. `level` says which. `params` are the operation's simple parameters and are sent in the query. `input` is posted as `application/fhir+json`: a `Parameters` resource, or the one resource an operation such as `$validate` takes. `method` is `POST` when `input` is set and `GET` otherwise unless given; an operation that changes state is invoked with `POST`, and a `GET` with `input` is refused at apply.
+
+The step hands on what the server answered under `resource`, whatever its type: a `Parameters`, a `Bundle` such as `$everything` gives, a `ValueSet` from `$expand`. An `OperationOutcome` answer, as `$validate` gives with status 200 however invalid the resource, is handed on too, its issues under `issues`, so a later step decides what an error issue means. A Bundle's next links are followed on the connection's origin only, for at most `max_pages` pages together held to `max_total`, and the pages are folded into one `searchset` Bundle; `complete` is false when a next link was left. An error status fails the step with `fhir.answered` like every other block.
+
+**Config**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connection` | `string` | yes |  | The code of the fhir connection naming the server. |
+| `operation` | `string` | yes |  | The operation's name with its dollar sign, such as `$everything`, `$validate` or `$expand`. |
+| `resource_type` | `string or null` |  | `null` | The type the operation is invoked on, such as `Patient`; unset, it is invoked on the whole system. |
+| `id` | `string or null` |  | `null` | The id of the one resource the operation is invoked on, beside `resource_type`; unset, it is invoked on the type. |
+| `params` | `object of string or string[]` |  |  | The operation's simple parameters, sent in the query, such as `{_count: "50"}` for `$everything` or `{url: "http://hl7.org/fhir/ValueSet/administrative-gender"}` for `$expand`; a list sends the parameter once per value. One whose name carries a credential is refused. |
+| `input` | `object or null` |  | `null` | The body the operation is posted, as plain FHIR JSON: a `Parameters` resource, or the one resource an operation such as `$validate` takes. |
+| `method` | `"GET" or "POST" or null` |  | `null` | How the operation is invoked; `POST` when `input` is set and `GET` otherwise when unset. An operation that changes state is invoked with `POST`. |
+| `max_pages` | `integer` |  | `1` | The most pages of a Bundle answer followed by its next links, the first included. |
+| `max_total` | `string or integer` |  | `"64mb"` | The most every page read may decode to together; an answer past it fails, and the rest is not read. At least `1b`. |
+
+**Output**
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `level` | `"system" or "type" or "instance"` | yes |  | Where the operation was invoked: on the whole system, a type, or one instance. |
+| `resource` | `object or null` |  | `null` | What the server answered, as plain FHIR JSON, such as a `Parameters`, a `Bundle`, a `ValueSet` or an `OperationOutcome`; the pages of a Bundle followed past the first are folded into one `searchset` Bundle. None when the server answered no body. |
+| `resource_type` | `string or null` |  | `null` | The type of what the server answered. |
+| `pages` | `integer` | yes |  | How many pages were read: 1 for an answer that is not a Bundle, 0 when there was no body. |
+| `complete` | `boolean` | yes |  | Whether the last page read had no next link. |
+| `issues` | `object[]` |  |  | What the server said in an `OperationOutcome`: the answer itself, as `$validate` gives, or entries of a Bundle answer. |
 
 ### `fhir.validate`
 
@@ -254,7 +357,7 @@ Evaluate a measure and answer a MeasureReport.
 
 Idempotent. Computes. Takes no connection.
 
-Evaluates a measure's CQL library over the resources in `data` as `fhir.cql` does, and answers a summary `MeasureReport`. The library names its populations the conventional way, `Initial Population`, `Denominator`, `Denominator Exclusion`, `Denominator Exception`, `Numerator` and `Numerator Exclusion`, in the `Patient` context. The engine evaluates each definition for each patient the data carries; the block then nests them the way the scoring nests them before it counts, so a patient is in the numerator only when the denominator holds it:
+Evaluates a measure's CQL library over the resources in `data` as `fhir.cql` does, its `parameters` reaching every population definition, and answers a summary `MeasureReport`. The library names its populations the conventional way, `Initial Population`, `Denominator`, `Denominator Exclusion`, `Denominator Exception`, `Numerator` and `Numerator Exclusion`, in the `Patient` context. The engine evaluates each definition for each patient the data carries; the block then nests them the way the scoring nests them before it counts, so a patient is in the numerator only when the denominator holds it:
 
 - `proportion`: the denominator is drawn from the initial population, the numerator from the denominator less its exclusions, and an exception only from a denominator member the numerator does not hold. The score is (numerator - numerator exclusion) / (denominator - denominator exclusion - denominator exception).
 - `ratio`: the numerator and the denominator are each drawn from the initial population, apart. The score is (numerator - numerator exclusion) / (denominator - denominator exclusion).
@@ -491,6 +594,15 @@ stream of run records is selected by code however the English is later reworded 
 | `fhir.resource.bad_resource_type` | `the resource's resourceType is not a FHIR resource type, an upper-case letter and then letters such as Patient, so it is not written` |
 | `fhir.resource.no_identifier` | `the {resource} carries no identifier with both a system and a value{system}, so there is nothing to match it on; the source server's id is never used` |
 | `fhir.resource.identifier_system` | ` under the system {system}` |
+| `fhir.update.id_and_identifier` | `an update matches its resource on id or on identifier_system, not both: id writes to that id, identifier_system matches on an identifier` |
+| `fhir.target.one` | `a {block} step names its resource by id or by params, exactly one of them` |
+| `fhir.target.empty_search` | `params is empty, and an empty search matches every {resource_type}; name at least one search parameter` |
+| `fhir.delete.too_many` | `the search matches {matched} {resource_type} resources and max is {max}, so nothing was deleted; narrow the search, or raise max` |
+| `fhir.patch.one_body` | `a patch carries json_patch or fhirpath_patch, exactly one of them` |
+| `fhir.patch.bad_operation` | `json_patch entry {index} is not a JSON Patch operation: an op of add, remove, replace, move, copy or test, a path, a value for add, replace and test, and a from for move and copy` |
+| `fhir.patch.not_parameters` | `fhirpath_patch is a Parameters resource, each parameter named operation, as FHIRPath Patch writes it` |
+| `fhir.operation.id_without_type` | `an instance operation names resource_type beside its id` |
+| `fhir.operation.input_on_get` | `a GET carries no body, so input is sent with method POST, or left unset` |
 | `fhir.transaction.nothing` | `a transaction step needs resources or a bundle, exactly one of them` |
 | `fhir.transaction.unresolved_reference` | `the {resource} refers to {reference}, which the transaction does not carry, so it would point at whatever holds that id on the target; carry it, or set unresolved_references to keep` |
 | `fhir.transaction.duplicate` | `the transaction carries {resource} twice, and a reference to it would be ambiguous` |

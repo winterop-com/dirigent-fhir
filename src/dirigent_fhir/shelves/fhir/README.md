@@ -1,13 +1,14 @@
 # FHIR examples: the REST blocks and FHIRPath
 
 These pipelines use the blocks the `dirigent-fhir` pack contributes: a read, a paged search, a
-conditional create, a conditional update, a transaction that carries many resources at once with
+conditional create, an update by identifier and by id, a patch, a guarded delete, a named
+operation, a transaction that carries many resources at once with
 the references between them rewritten, structural validation, CQL and measures, and the FHIRPath verbs `transform.fhirpath`,
 `map.fhirpath` and `filter.fhirpath`. Installing the pack is what puts
 the blocks in the catalog; an instance without it refuses these at the block preflight.
 
 Every document but `fhir-fhirpath-plain-json` talks to a local HAPI FHIR server rather than a public
-one, because three of them write. Start one, and a second on another port for the copy:
+one, because most of them write. Start one, and a second on another port for the copy:
 
 ```bash
 docker run -d --name fhir-source -p 8090:8080 hapiproject/hapi:v8.12.0-2
@@ -24,6 +25,10 @@ under `requires.connections`, so create a `fhir` connection under that code or r
 | [fhir-search-paged.yaml](fhir-search-paged.yaml) | Search one type, following next links under a page cap. |
 | [fhir-create-if-none-exist.yaml](fhir-create-if-none-exist.yaml) | Create a resource unless one with its identifier is already there. |
 | [fhir-update-by-identifier.yaml](fhir-update-by-identifier.yaml) | Write a resource over the one with its identifier, or create it. |
+| [fhir-update-by-id.yaml](fhir-update-by-id.yaml) | Write a resource at a known id on this server, creating it there the first time. |
+| [fhir-patch.yaml](fhir-patch.yaml) | Change part of a resource with a JSON Patch, and with a FHIRPath Patch. |
+| [fhir-delete-test-data.yaml](fhir-delete-test-data.yaml) | Delete what a search matches, never more than a bound, and one resource by its id. |
+| [fhir-operation-everything.yaml](fhir-operation-everything.yaml) | Invoke a patient's $everything, a $validate and a $expand. |
 | [fhir-copy-on-schedule.yaml](fhir-copy-on-schedule.yaml) | Copy patients and their observations from one server to another, nightly. |
 | [fhir-copy-page-by-page.yaml](fhir-copy-page-by-page.yaml) | Copy a search to another server, one transaction per page, fanned out. |
 | [fhir-fhirpath-high-readings.yaml](fhir-fhirpath-high-readings.yaml) | Filter, map and reshape a search's observations with FHIRPath. |

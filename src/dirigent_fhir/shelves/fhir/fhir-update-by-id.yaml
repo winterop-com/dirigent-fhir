@@ -1,0 +1,47 @@
+# Write a resource at an id on this server, creating it there the first time.
+#
+# fhir.update with `id` is a plain update: `PUT Patient/kari-nordmann`. The body's own `id` is
+# set to it, so what decides where the write lands is the step's `id`, never one the resource
+# carried in from elsewhere. The first run creates the patient at that id, where the server
+# allows update as create, as HAPI does; every run after it writes over it, a new version each
+# time. Use it for a resource that lives on this server; one copied from another server is
+# matched on its identifier instead, as fhir-update-by-identifier does.
+#
+#   dg run --local examples/fhir/fhir-update-by-id.yaml
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-update-by-id
+name: Update a FHIR resource at its id
+description: |
+  Write a patient at a known id, creating it there the first time.
+
+tags: [fhir, starter]
+
+requires:
+  blocks:
+    - fhir.update
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+steps:
+  update:
+    block: fhir.update
+    config:
+      connection: fhir-local
+      id: kari-nordmann
+      resource:
+        resourceType: Patient
+        identifier:
+          - system: http://example.org/mrn
+            value: "12345"
+        name:
+          - family: Nordmann
+            given: [Kari]
+        birthDate: "1980-04-01"

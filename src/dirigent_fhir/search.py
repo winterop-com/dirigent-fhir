@@ -93,11 +93,16 @@ class FhirSearchConfig(BlockModel):
     @field_validator("params")
     @classmethod
     def _params_hold_no_credential(cls, params: dict[str, str | list[str]]) -> dict[str, str | list[str]]:
-        """Refuse a parameter whose name carries a credential, repeating the name and never the value."""
-        for name in params:
-            if _carries_credential(name):
-                raise ValueError(SEARCH_CREDENTIAL_REFUSED.render(parameter=name))
-        return params
+        """Refuse a parameter whose name carries a credential."""
+        return refuse_credentials(params)
+
+
+def refuse_credentials(params: dict[str, str | list[str]]) -> dict[str, str | list[str]]:
+    """Refuse a parameter whose name carries a credential, repeating the name and never the value."""
+    for name in params:
+        if _carries_credential(name):
+            raise ValueError(SEARCH_CREDENTIAL_REFUSED.render(parameter=name))
+    return params
 
 
 class FhirSearchOutput(BlockModel):
@@ -129,7 +134,7 @@ class FhirSearchOutput(BlockModel):
     """What the server said about the search in an `OperationOutcome` entry, such as an unknown parameter."""
 
 
-def _params(params: dict[str, str | list[str]]) -> list[tuple[str, str]]:
+def query_pairs(params: dict[str, str | list[str]]) -> list[tuple[str, str]]:
     """The search parameters as query pairs, a list sending one pair per value."""
     pairs: list[tuple[str, str]] = []
     for name, value in params.items():
@@ -148,7 +153,9 @@ class FhirSearchOperator(Operator[FhirSearchConfig, FhirSearchOutput]):
     async def execute(self, config: FhirSearchConfig, ctx: StepContext) -> FhirSearchOutput:
         """Read the pages, then fold them into one searchset Bundle."""
         async with client_for(ctx, config.connection) as fhir:
-            result = await fhir.search(config.resource_type, _params(config.params), config.max_pages, config.max_total)
+            result = await fhir.search(
+                config.resource_type, query_pairs(config.params), config.max_pages, config.max_total
+            )
         if result.more and config.on_more == "fail":
             raise BlockFailure(SEARCH_MORE_PAGES, error_class=ErrorClass.REJECTED, max_pages=config.max_pages)
         output = await asyncio.to_thread(_fold, result, config.emit)

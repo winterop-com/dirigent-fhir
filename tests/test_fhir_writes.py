@@ -1,12 +1,13 @@
-"""``fhir.create`` and ``fhir.update``: conditional writes, never on the source server's id."""
+"""``fhir.create`` and ``fhir.update``: conditional writes and writes at an id, never at the source server's id."""
 
 import json
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from dirigent_fhir.create import FhirCreateOperator
-from dirigent_fhir.update import FhirUpdateOperator
+from dirigent_fhir.update import FhirUpdateConfig, FhirUpdateOperator
 from dirigent_fhir.writes import FhirWriteOutput
 from dirigent_plugin import BlockFailure, ErrorClass
 from dirigent_testing import FakeContext, call_block
@@ -144,3 +145,33 @@ async def test_a_write_under_a_type_that_is_no_type_name_sends_nothing(
 async def test_a_write_under_a_type_name_is_sent_to_its_type(ctx: FakeContext, server: FhirServer, kind: str) -> None:
     await _update(ctx, {**SOURCE, "resourceType": kind})
     assert server.requests[0].url.path == f"/fhir/{kind}"
+
+
+async def test_an_update_by_id_writes_at_that_id_and_creates_it_first(ctx: FakeContext, server: FhirServer) -> None:
+    first = await _update(ctx, id="local-1")
+    second = await _update(ctx, {**SOURCE, "name": [{"family": "Hansen"}]}, id="local-1")
+    assert (first.outcome, first.status, first.id) == ("created", 201, "local-1")
+    assert (second.outcome, second.status, second.version_id) == ("updated", 200, "2")
+    put = server.requests[0]
+    assert (put.method, put.url.path) == ("PUT", "/fhir/Patient/local-1")
+    sent = json.loads(put.content)
+    assert sent["id"] == "local-1"
+    assert sent["meta"] == {"profile": ["http://example.org/p"]}
+
+
+async def test_an_update_by_id_needs_no_identifier(ctx: FakeContext, server: FhirServer) -> None:
+    out = await _update(ctx, {"resourceType": "Patient", "id": "source-17"}, id="local-2")
+    assert out.id == "local-2"
+
+
+def test_an_update_by_id_and_by_identifier_at_once_is_refused() -> None:
+    with pytest.raises(ValidationError, match="on id or on identifier_system, not both"):
+        FhirUpdateConfig.model_validate(
+            {"connection": CONNECTION, "resource": SOURCE, "id": "local-1", "identifier_system": MRN}
+        )
+
+
+@pytest.mark.parametrize("bad", ["../admin", "a/b", "x" * 65, ""])
+def test_an_update_id_that_is_no_fhir_id_is_refused(bad: str) -> None:
+    with pytest.raises(ValidationError):
+        FhirUpdateConfig.model_validate({"connection": CONNECTION, "resource": SOURCE, "id": bad})
