@@ -2,10 +2,10 @@
 
 **The FHIR pack for dirigent.**
 
-The pack contributes one connection kind and five blocks that speak FHIR R4's REST interface as
-first-class steps: a read, a search that follows the server's pages, a conditional create, a
-conditional update, and a transaction that carries many resources with the references between
-them rewritten. A pipeline that names `fhir.transaction` says what it wants written; it does not
+The pack contributes one connection kind and the blocks that speak FHIR R4's REST interface as
+first-class steps: a read, a search that follows the server's pages, a conditional create, an
+update at an id or conditional on an identifier, a patch, a guarded delete, a transaction that
+carries many resources with the references between them rewritten, and any named operation. A pipeline that names `fhir.transaction` says what it wants written; it does not
 assemble the Bundle, invent `urn:uuid`s, or parse the `OperationOutcome` itself. Beside them it
 validates resources, evaluates CQL and scores measures, and puts FHIRPath on dirigent's transform
 verbs, where it reads any JSON and not only FHIR.
@@ -19,8 +19,8 @@ on it unchanged.
 
 - The [`fhir` connection kind](connection.md): one server's base, its credential, the limits one
   answer is held to, and a health check that reads `/metadata`.
-- The [blocks](blocks.md): two that read and three that write, every write conditional on FHIR's
-  own means; `fhir.validate`, `fhir.cql` and `fhir.measure`, which compute on what they are given;
+- The [blocks](blocks.md): two that read, five that write, and `fhir.operation`, which does what
+  the operation it invokes does; `fhir.validate`, `fhir.cql` and `fhir.measure`, which compute on what they are given;
   and `transform.fhirpath`, `map.fhirpath` and `filter.fhirpath`, which
   [work on any JSON](blocks.md#on-json-that-is-not-fhir).
 - One [example](examples.md) document per operation, and a FHIR to FHIR copy on a schedule.

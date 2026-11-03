@@ -189,3 +189,43 @@ MEASURE_NO_POPULATIONS = FHIR.define(
     "the library defines no Initial Population, so there is nothing to count; a measure's library names its "
     "populations Initial Population, Denominator, Numerator and their exclusions and exceptions",
 )
+
+UPDATE_ID_AND_IDENTIFIER = FHIR.define(
+    "update.id_and_identifier",
+    "an update matches its resource on id or on identifier_system, not both: id writes to that id, "
+    "identifier_system matches on an identifier",
+)
+
+TARGET_ONE = FHIR.define("target.one", "a {block} step names its resource by id or by params, exactly one of them")
+
+TARGET_EMPTY_SEARCH = FHIR.define(
+    "target.empty_search",
+    "params is empty, and an empty search matches every {resource_type}; name at least one search parameter",
+)
+
+DELETE_TOO_MANY = FHIR.define(
+    "delete.too_many",
+    "the search matches {matched} {resource_type} resources and max is {max}, so nothing was deleted; "
+    "narrow the search, or raise max",
+)
+
+PATCH_ONE_BODY = FHIR.define("patch.one_body", "a patch carries json_patch or fhirpath_patch, exactly one of them")
+
+PATCH_BAD_OPERATION = FHIR.define(
+    "patch.bad_operation",
+    "json_patch entry {index} is not a JSON Patch operation: an op of add, remove, replace, move, copy or test, "
+    "a path, a value for add, replace and test, and a from for move and copy",
+)
+
+PATCH_NOT_PARAMETERS = FHIR.define(
+    "patch.not_parameters",
+    "fhirpath_patch is a Parameters resource, each parameter named operation, as FHIRPath Patch writes it",
+)
+
+OPERATION_ID_WITHOUT_TYPE = FHIR.define(
+    "operation.id_without_type", "an instance operation names resource_type beside its id"
+)
+
+OPERATION_INPUT_ON_GET = FHIR.define(
+    "operation.input_on_get", "a GET carries no body, so input is sent with method POST, or left unset"
+)

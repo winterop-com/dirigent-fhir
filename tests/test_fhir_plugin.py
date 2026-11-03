@@ -15,7 +15,10 @@ from dirigent_testing import assert_contribution_conforms, check_pack_messages
 FHIR_BLOCKS = [
     "fhir.cql",
     "fhir.create",
+    "fhir.delete",
     "fhir.measure",
+    "fhir.operation",
+    "fhir.patch",
     "fhir.read",
     "fhir.search",
     "fhir.transaction",
@@ -34,8 +37,11 @@ BLOCKS = sorted(FHIR_BLOCKS + FHIRPATH_VERBS)
 #: The blocks that only read, and are safe to run again.
 READS = {"fhir.read", "fhir.search"}
 
-#: The writes a repeat leaves as the first run left them: each is matched on an identifier.
-IDEMPOTENT_WRITES = {"fhir.update", "fhir.transaction"}
+#: The writes a repeat leaves as the first run left them: each is matched on an id or an identifier.
+IDEMPOTENT_WRITES = {"fhir.update", "fhir.transaction", "fhir.delete"}
+
+#: The blocks whose effect is the operation's they invoke, which may read or write.
+EITHER = {"fhir.operation"}
 
 CONTRIBUTION = FhirPlugin().contribute()
 
@@ -72,6 +78,9 @@ def test_reads_say_they_read_and_writes_say_they_write() -> None:
         if operator.spec.id in READS:
             assert doc.endswith("It only reads."), operator.spec.id
             assert operator.spec.idempotent is True
+        elif operator.spec.id in EITHER:
+            assert doc.endswith("It reads or writes, as the operation does."), operator.spec.id
+            assert operator.spec.idempotent is False
         else:
             assert doc.endswith("It writes."), operator.spec.id
             assert operator.spec.idempotent is (operator.spec.id in IDEMPOTENT_WRITES)

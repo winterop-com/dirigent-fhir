@@ -1,0 +1,87 @@
+# Change part of a resource with a JSON Patch, and with a FHIRPath Patch.
+#
+# A patch sends only the change, so whatever else the server holds on the resource is left as it
+# is, where an update would write the whole resource over it.
+#
+# HOP BY HOP:
+#
+#   seed       fhir.create the patient, unless one with its identifier is already there.
+#   deactivate fhir.patch with a JSON Patch, conditional on the identifier: the server applies it
+#              to the one patient the search matches, and refuses when several do.
+#   phone      fhir.patch with a FHIRPath Patch, a Parameters resource, on the id seed answered.
+#
+#   dg run --local examples/fhir/fhir-patch.yaml
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-patch
+name: Patch a FHIR resource
+description: |
+  Change part of a patient with a JSON Patch and a FHIRPath Patch.
+
+tags: [fhir, starter]
+
+requires:
+  blocks:
+    - fhir.create
+    - fhir.patch
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+steps:
+  seed:
+    block: fhir.create
+    config:
+      connection: fhir-local
+      if_none_exist: identifier=http://example.org/mrn|67890
+      resource:
+        resourceType: Patient
+        active: true
+        identifier:
+          - system: http://example.org/mrn
+            value: "67890"
+        name:
+          - family: Hansen
+            given: [Ola]
+
+  deactivate:
+    block: fhir.patch
+    depends_on: [seed]
+    config:
+      connection: fhir-local
+      resource_type: Patient
+      params:
+        identifier: http://example.org/mrn|67890
+      json_patch:
+        - op: replace
+          path: /active
+          value: false
+
+  phone:
+    block: fhir.patch
+    depends_on: [deactivate]
+    config:
+      connection: fhir-local
+      resource_type: Patient
+      id: ${steps.seed.output.id}
+      fhirpath_patch:
+        resourceType: Parameters
+        parameter:
+          - name: operation
+            part:
+              - name: type
+                valueCode: add
+              - name: path
+                valueString: Patient
+              - name: name
+                valueString: telecom
+              - name: value
+                valueContactPoint:
+                  system: phone
+                  value: "+47 22 00 00 00"

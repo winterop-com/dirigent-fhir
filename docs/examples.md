@@ -2,7 +2,7 @@
 
 The pack ships one shelf, `fhir`, which an instance lists under its examples once the pack is
 installed. Every document but `fhir-fhirpath-plain-json` talks to a local HAPI FHIR server, never a
-public one, because three of them write. Start one, and a second for the copy:
+public one, because most of them write. Start one, and a second for the copy:
 
 ```bash
 docker run -d --name fhir-source -p 8090:8080 hapiproject/hapi:v8.12.0-2
@@ -15,6 +15,10 @@ docker run -d --name fhir-target -p 8091:8080 hapiproject/hapi:v8.12.0-2
 | `fhir-search-paged` | Search one type, following next links for at most five pages. |
 | `fhir-create-if-none-exist` | Create a patient unless one with the same identifier is already there. |
 | `fhir-update-by-identifier` | Write a patient over the one with the same identifier, or create it. |
+| `fhir-update-by-id` | Write a patient at a known id, creating it there the first time. |
+| `fhir-patch` | Change part of a patient with a JSON Patch and a FHIRPath Patch. |
+| `fhir-delete-test-data` | Delete test patients by a search, bounded by max, and one by its id. |
+| `fhir-operation-everything` | Invoke a patient's $everything, a $validate and a $expand. |
 | `fhir-copy-on-schedule` | Copy patients and their observations from one server to another, nightly. |
 | `fhir-copy-page-by-page` | Copy patients and observations to another server, a transaction per page. |
 | `fhir-fhirpath-high-readings` | Find body weights over a limit, and the patients they belong to, with FHIRPath. |

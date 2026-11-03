@@ -129,6 +129,21 @@ async def test_a_measure_nests_its_populations_and_answers_a_measure_report(ctx:
     }
 
 
+@pytest.mark.parametrize(("limit", "numerator"), [(50, ["Patient/p1", "Patient/p3"]), (90, ["Patient/p3"])])
+async def test_a_parameter_reaches_the_measure_as_it_reaches_the_library(
+    ctx: FakeContext, limit: int, numerator: list[str]
+) -> None:
+    measure = await call_block(FhirMeasureOperator(), {**MEASURE_CONFIG, "parameters": {"Limit": limit}}, ctx)
+    library = await call_block(
+        FhirCqlOperator(), {"library": LIBRARY, "data": BUNDLE, "parameters": {"Limit": limit}}, ctx
+    )
+    assert isinstance(measure, FhirMeasureOutput)
+    assert isinstance(library, FhirCqlOutput)
+    heavy_adults = [one.patient for one in library.patients if one.values["Adult"] and one.values["Heavy"]]
+    assert measure.members["numerator"] == heavy_adults == numerator
+    assert measure.populations["numerator"] == len(numerator)
+
+
 async def test_a_cohort_counts_only_its_initial_population(ctx: FakeContext) -> None:
     output = await call_block(FhirMeasureOperator(), {**MEASURE_CONFIG, "scoring": "cohort"}, ctx)
     assert isinstance(output, FhirMeasureOutput)

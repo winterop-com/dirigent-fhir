@@ -9,8 +9,11 @@ map and filter verbs:
 | `fhir.read` | reads | Reads one resource by type and id. |
 | `fhir.search` | reads | Searches one type, following `Bundle.link[next]` on the connection's origin under a page cap, and hands on one Bundle, its pages, or its resources for a fan-out. |
 | `fhir.create` | writes | Creates a resource, conditionally with `ifNoneExist`. |
-| `fhir.update` | writes | Updates a resource with a conditional update on its identifier, never on a source server's id. |
+| `fhir.update` | writes | Updates a resource at an id on this server, or with a conditional update on its identifier, never on a source server's id. |
+| `fhir.patch` | writes | Patches a resource by id, or the one a search matches, with JSON Patch or FHIRPath Patch. |
+| `fhir.delete` | writes | Deletes a resource by id, or what a search matches, refusing a search that matches everything or more than `max`. |
 | `fhir.transaction` | writes | Writes many resources in one transaction or batch Bundle, references between them rewritten to `urn:uuid` entries. |
+| `fhir.operation` | either | Invokes a named operation, such as `$everything`, `$validate` or `$expand`, on the system, a type or an instance, and hands on what it answers. |
 | `fhir.validate` | computes | Validates resources and Bundles structurally: FHIR's JSON rules, and the engine's R4 models where they reach. |
 | `fhir.cql` | computes | Evaluates a CQL library over the resources a step produced, per patient or once. |
 | `fhir.measure` | computes | Evaluates a measure's populations over those resources, scores them, and answers a MeasureReport. |

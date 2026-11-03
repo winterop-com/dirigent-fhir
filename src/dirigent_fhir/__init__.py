@@ -15,8 +15,11 @@ from dirigent_fhir.cql import (
     FhirMeasureOutput,
 )
 from dirigent_fhir.create import FhirCreateConfig, FhirCreateOperator
+from dirigent_fhir.delete import FhirDeleteConfig, FhirDeleteOperator, FhirDeleteOutput
 from dirigent_fhir.fhirpath import FhirPathConfig, FhirPathFilterer, FhirPathMapper, FhirPathTransformer
 from dirigent_fhir.messages import FHIR
+from dirigent_fhir.operation import FhirOperationConfig, FhirOperationOperator, FhirOperationOutput
+from dirigent_fhir.patch import FhirPatchConfig, FhirPatchOperator
 from dirigent_fhir.r4 import FhirIssue
 from dirigent_fhir.read import FhirReadConfig, FhirReadOperator, FhirReadOutput
 from dirigent_fhir.search import FhirSearchConfig, FhirSearchOperator, FhirSearchOutput
@@ -47,7 +50,10 @@ class FhirPlugin:
                 FhirSearchOperator(),
                 FhirCreateOperator(),
                 FhirUpdateOperator(),
+                FhirPatchOperator(),
+                FhirDeleteOperator(),
                 FhirTransactionOperator(),
+                FhirOperationOperator(),
                 FhirValidateOperator(),
                 FhirCqlOperator(),
                 FhirMeasureOperator(),
@@ -77,11 +83,19 @@ __all__ = [
     "FhirCqlOutput",
     "FhirCreateConfig",
     "FhirCreateOperator",
+    "FhirDeleteConfig",
+    "FhirDeleteOperator",
+    "FhirDeleteOutput",
     "FhirEntryResult",
     "FhirIssue",
     "FhirMeasureConfig",
     "FhirMeasureOperator",
     "FhirMeasureOutput",
+    "FhirOperationConfig",
+    "FhirOperationOperator",
+    "FhirOperationOutput",
+    "FhirPatchConfig",
+    "FhirPatchOperator",
     "FhirPathConfig",
     "FhirPathFilterer",
     "FhirPathMapper",

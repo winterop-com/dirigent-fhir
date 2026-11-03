@@ -1,8 +1,9 @@
 """A fake FHIR R4 server in memory, answering the pack's client through ``httpx2.MockTransport``.
 
 It serves ``/metadata``, reads, searches paged by ``_count`` with next links, conditional create
-and update on ``identifier``, and transaction and batch Bundles that resolve ``urn:uuid``
-references. It refuses what a real server refuses: an id on a create, a reference it cannot
+and update on ``identifier``, update by id, delete, a JSON Patch of top-level elements, operations
+answered with a Parameters naming what they were sent, and transaction and batch Bundles that
+resolve ``urn:uuid`` references. It refuses what a real server refuses: an id on a create, a reference it cannot
 resolve on itself, more than one match for a conditional write. A test scripts a failure, a redirect, or a
 next link elsewhere, and reads back every request the server took.
 """
@@ -57,6 +58,7 @@ class FhirServer:
         self.scripted: list[Callable[[httpx2.Request], httpx2.Response | None]] = []
         self.next_link_override: str | None = None
         self._promised: set[str] = set()
+        self._deleted: set[str] = set()
         self._ids = 0
 
     def seed(self, resource: Resource) -> Resource:
@@ -90,11 +92,28 @@ class FhirServer:
         if method == "POST" and path == "":
             return self._bundle(json.loads(request.content))
         parts = path.split("/")
+        if parts[-1].startswith("$"):
+            return self._operation(request, parts)
         if method == "GET" and len(parts) == 2:
             found = self.store.get(parts[0], {}).get(parts[1])
             if found is None:
-                return outcome(404, "not-found", f"Resource {path} is not known")
+                return self._missing(path)
             return self._json(200, found)
+        if method == "PUT" and len(parts) == 2:
+            body = json.loads(request.content)
+            if body.get("id") != parts[1]:
+                return outcome(400, "processing", "the id in the body must match the id in the URL")
+            created = parts[1] not in self.store.get(parts[0], {})
+            stored = self._store(body, parts[1])
+            self._deleted.discard(path)
+            return self._json(201 if created else 200, stored, location=self._location(stored))
+        if method == "DELETE" and len(parts) == 2:
+            if self.store.get(parts[0], {}).pop(parts[1], None) is None:
+                return self._missing(path)
+            self._deleted.add(path)
+            return outcome(200, "informational", "Successfully deleted 1 resource(s).", severity="information")
+        if method == "PATCH":
+            return self._patch(request, parts)
         if method == "GET" and len(parts) == 1:
             return self._search(parts[0], dict(parse_qsl(request.url.query.decode())))
         if method == "POST" and len(parts) == 1:
@@ -105,6 +124,45 @@ class FhirServer:
             status, body, _ = self._update(parts[0], json.loads(request.content), search)
             return self._json(status, body, location=self._location(body))
         return outcome(400, "not-supported", f"{method} {path} is not served")
+
+    def _missing(self, path: str) -> httpx2.Response:
+        """A 410 for a resource deleted here, a 404 for one never held."""
+        if path in self._deleted:
+            return outcome(410, "deleted", f"Resource {path} was deleted")
+        return outcome(404, "not-found", f"Resource {path} is not known")
+
+    def _patch(self, request: httpx2.Request, parts: list[str]) -> httpx2.Response:
+        """Apply a JSON Patch's top-level add, replace and remove, or a FHIRPath Patch as a new version only."""
+        kind = parts[0]
+        if len(parts) == 2:
+            found = [self.store.get(kind, {})[parts[1]]] if parts[1] in self.store.get(kind, {}) else []
+        else:
+            found = self._matches(kind, dict(parse_qsl(request.url.query.decode())))
+        if not found:
+            return outcome(404, "not-found", f"nothing matches {kind}")
+        if len(found) > 1:
+            return outcome(412, "multiple-matches", "more than one resource matches")
+        resource = {key: value for key, value in found[0].items() if key != "meta"}
+        if request.headers["Content-Type"] == "application/json-patch+json":
+            for operation in json.loads(request.content):
+                key = operation["path"].strip("/")
+                if operation["op"] == "remove":
+                    resource.pop(key, None)
+                else:
+                    resource[key] = operation["value"]
+        stored = self._store(resource, resource["id"])
+        return self._json(200, stored, location=self._location(stored))
+
+    def _operation(self, request: httpx2.Request, parts: list[str]) -> httpx2.Response:
+        """Answer an operation with a Parameters naming its path, method, query and body."""
+        named: list[Resource] = [
+            {"name": "path", "valueString": "/".join(parts)},
+            {"name": "method", "valueString": request.method},
+        ]
+        named.extend({"name": name, "valueString": value} for name, value in parse_qsl(request.url.query.decode()))
+        if request.content:
+            named.append({"name": "body", "resource": json.loads(request.content)})
+        return self._json(200, {"resourceType": "Parameters", "parameter": named})
 
     def _json(self, status: int, body: Any, location: str | None = None) -> httpx2.Response:
         """A FHIR JSON answer."""

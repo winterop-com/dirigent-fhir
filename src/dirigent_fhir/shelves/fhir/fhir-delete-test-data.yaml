@@ -1,0 +1,79 @@
+# Delete what a search matches, never more than a bound, and one resource by its id.
+#
+# A conditional delete first searches, and fails before deleting anything when the search matches
+# more than `max`; then it deletes each resource the search found, by its id, so nothing the
+# count did not see is touched. A search that names no parameter matching on a value would match
+# every patient, and is refused when the document is applied. A delete of a resource already
+# gone answers `absent`, so the document runs again safely.
+#
+# HOP BY HOP:
+#
+#   seed      fhir.transaction writes three test patients under their own identifier system.
+#   one       fhir.update writes a fourth at the id test-data-one.
+#   by_id     fhir.delete removes that one by its id.
+#   the_rest  fhir.delete removes every patient left under the test system, at most ten.
+#
+#   dg run --local examples/fhir/fhir-delete-test-data.yaml
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-delete-test-data
+name: Delete FHIR test data
+description: |
+  Delete test patients by a search, bounded by max, and one by its id.
+
+tags: [fhir, starter]
+
+requires:
+  blocks:
+    - fhir.transaction
+    - fhir.update
+    - fhir.delete
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+steps:
+  seed:
+    block: fhir.transaction
+    config:
+      connection: fhir-local
+      resources:
+        - resourceType: Patient
+          identifier: [{system: "http://example.org/test-data", value: "t1"}]
+        - resourceType: Patient
+          identifier: [{system: "http://example.org/test-data", value: "t2"}]
+        - resourceType: Patient
+          identifier: [{system: "http://example.org/test-data", value: "t3"}]
+
+  one:
+    block: fhir.update
+    config:
+      connection: fhir-local
+      id: test-data-one
+      resource:
+        resourceType: Patient
+        identifier: [{system: "http://example.org/test-data", value: "t0"}]
+
+  by_id:
+    block: fhir.delete
+    depends_on: [one]
+    config:
+      connection: fhir-local
+      resource_type: Patient
+      id: test-data-one
+
+  the_rest:
+    block: fhir.delete
+    depends_on: [seed, by_id]
+    config:
+      connection: fhir-local
+      resource_type: Patient
+      params:
+        identifier: "http://example.org/test-data|"
+      max: 10

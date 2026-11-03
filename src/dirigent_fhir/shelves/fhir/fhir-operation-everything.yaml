@@ -1,0 +1,89 @@
+# Invoke FHIR operations: a patient's $everything, a $validate, and a $expand.
+#
+# fhir.operation names the operation and where it is invoked: on one instance with
+# resource_type and id, on a type with resource_type alone, on the whole system with neither.
+# What the server answers is handed on as it is, a Bundle, an OperationOutcome or a ValueSet.
+#
+# HOP BY HOP:
+#
+#   seed        fhir.create a patient, unless one with its identifier is already there.
+#   everything  Patient/{id}/$everything, every page of the Bundle up to five, folded into one.
+#   validate    Observation/$validate posted an observation with no status, which FHIR requires:
+#               the server answers an OperationOutcome with status 200 however invalid the
+#               resource, so the step succeeds and the error is among its `issues`. A body the
+#               server cannot even parse, such as a date of 1990-02-30, is refused with 400 instead.
+#   genders     ValueSet/$expand of administrative-gender, its one parameter in the query.
+#
+#   dg run --local examples/fhir/fhir-operation-everything.yaml
+
+format: dirigent/v1
+kind: pipeline
+code: fhir-operation-everything
+name: Invoke FHIR operations
+description: |
+  Invoke a patient's $everything, a $validate and a $expand.
+
+tags: [fhir, starter]
+
+requires:
+  blocks:
+    - fhir.create
+    - fhir.operation
+
+connections:
+  fhir-local:
+    name: Local FHIR server
+    description: A local HAPI FHIR server, started with docker run -p 8090:8080 hapiproject/hapi:v8.12.0-2.
+    kind: fhir
+    config:
+      base_url: http://localhost:8090/fhir
+
+steps:
+  seed:
+    block: fhir.create
+    config:
+      connection: fhir-local
+      if_none_exist: identifier=http://example.org/mrn|24680
+      resource:
+        resourceType: Patient
+        identifier:
+          - system: http://example.org/mrn
+            value: "24680"
+        name:
+          - family: Berg
+            given: [Nora]
+
+  everything:
+    block: fhir.operation
+    depends_on: [seed]
+    config:
+      connection: fhir-local
+      operation: $everything
+      resource_type: Patient
+      id: ${steps.seed.output.id}
+      params:
+        _count: "50"
+      max_pages: 5
+
+  validate:
+    block: fhir.operation
+    config:
+      connection: fhir-local
+      operation: $validate
+      resource_type: Observation
+      input:
+        resourceType: Observation
+        code:
+          text: Body weight
+        valueQuantity:
+          value: 72
+          unit: kg
+
+  genders:
+    block: fhir.operation
+    config:
+      connection: fhir-local
+      operation: $expand
+      resource_type: ValueSet
+      params:
+        url: http://hl7.org/fhir/ValueSet/administrative-gender
