@@ -15,11 +15,12 @@ import sys
 from decimal import Decimal
 from typing import Any, cast
 
-from dhis2w_fhir_engine import BundleDataSource, CQLEvaluator, MeasureEvaluator
+from dhis2w_fhir_engine import BundleDataSource, CQLEvaluator, CQLLibrary, MeasureEvaluator
 from dhis2w_fhir_engine.evaluation.cql.types import CQLCode, CQLConcept, CQLInterval, CQLRatio, CQLTuple
 from dhis2w_fhir_engine.evaluation.exceptions import CQLError
 from dhis2w_fhir_engine.evaluation.fhirpath import unwrap_primitives
 from dhis2w_fhir_engine.evaluation.types import FHIRDate, FHIRDateTime, FHIRTime, Quantity
+from dhis2w_fhir_engine.ingest import ResourceInput
 
 #: The population codes a proportion, ratio or cohort measure reports, in report order.
 POPULATIONS: tuple[str, ...] = (
@@ -80,6 +81,27 @@ def _source(value: Any) -> BundleDataSource:
     return source
 
 
+class _Parameterised(CQLEvaluator):
+    """A CQL evaluator that hands every definition it evaluates the same parameter values."""
+
+    def __init__(self, parameters: dict[str, Any], data_source: BundleDataSource) -> None:
+        """Hold the parameters every evaluation reads, over one data source."""
+        super().__init__(data_source=data_source)
+        self.parameters = parameters
+
+    def evaluate_definition(
+        self,
+        definition_name: str,
+        resource: ResourceInput | None = None,
+        parameters: dict[str, Any] | None = None,
+        library: CQLLibrary | None = None,
+    ) -> Any:
+        """Evaluate one definition with the held parameters, any given here taking precedence."""
+        return super().evaluate_definition(
+            definition_name, resource=resource, parameters={**self.parameters, **(parameters or {})}, library=library
+        )
+
+
 class Program:
     """One compiled library, what it is asked for, and the most its answer may run to."""
 
@@ -136,7 +158,7 @@ class Program:
 
     def _measure(self, source: BundleDataSource) -> dict[str, Any]:
         """Each patient's membership by the engine, counted by the population rules of the scoring."""
-        evaluator = MeasureEvaluator(data_source=source)
+        evaluator = MeasureEvaluator(cql_evaluator=_Parameterised(self.parameters, source))
         evaluator.load_measure(self.source)
         counts = dict.fromkeys(POPULATIONS, 0)
         members: dict[str, list[str]] = {code: [] for code in POPULATIONS}
