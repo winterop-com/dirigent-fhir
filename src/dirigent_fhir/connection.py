@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
-from dirigent_common import BlockModel, Duration, HealthReport, Size, scrub
+from dirigent_common import BlockModel, CredentialForm, Duration, HealthReport, Size, scrub
 from dirigent_fhir.client import (
     AUTHORIZATION,
     DEFAULT_PORTS,
@@ -192,6 +192,10 @@ class FhirConnectionKind(ConnectionKind):
     id: ClassVar[str] = "fhir"
     config_model: ClassVar[type[BaseModel]] = FhirConnectionConfig
     mark: ClassVar[str | None] = FHIR_MARK
+    credential_forms: ClassVar[tuple[CredentialForm, ...]] = (
+        CredentialForm(code="bearer", name="Bearer token", fields=("bearer_token",)),
+        CredentialForm(code="basic", name="Username and password", fields=("basic_username", "basic_password")),
+    )
 
     def __init__(self, transport: httpx2.AsyncBaseTransport | None = None) -> None:
         """Check through the given transport, or through the network when none is given."""
